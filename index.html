@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trippy — Travel Tracker</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app" id="app-main">
+    <header>
+      <h1>Trippy</h1>
+      <p class="subtitle">Your personal travel tracker</p>
+    </header>
+
+    <button id="add-btn" class="add-btn">+ Add Trip</button>
+
+    <dialog id="flight-dialog">
+      <form id="flight-form" method="dialog">
+        <h2 id="dialog-title">Add Flight</h2>
+
+        <div class="type-toggle">
+          <button type="button" class="type-btn active" data-type="flight">Flight</button>
+          <button type="button" class="type-btn" data-type="train">Train</button>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group autocomplete-wrap">
+            <label for="from">From</label>
+            <input type="text" id="from" placeholder="e.g. JFK" required maxlength="100" autocomplete="off">
+            <ul class="autocomplete-list" id="from-suggestions"></ul>
+          </div>
+          <div class="form-group autocomplete-wrap">
+            <label for="to">To</label>
+            <input type="text" id="to" placeholder="e.g. LAX" required maxlength="100" autocomplete="off">
+            <ul class="autocomplete-list" id="to-suggestions"></ul>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="date">Date</label>
+            <input type="date" id="date" required>
+          </div>
+          <div class="form-group">
+            <label for="operator" id="operator-label">Airline</label>
+            <input type="text" id="operator" placeholder="e.g. Delta" maxlength="50">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="trip-number" id="trip-number-label">Flight #</label>
+            <input type="text" id="trip-number" placeholder="e.g. DL 402" maxlength="20">
+          </div>
+          <div class="form-group">
+            <label for="confirmation">Confirmation #</label>
+            <input type="text" id="confirmation" placeholder="e.g. ABC123" maxlength="30">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="departure-time">Departure</label>
+            <input type="time" id="departure-time">
+          </div>
+          <div class="form-group">
+            <label for="arrival-time">Arrival</label>
+            <input type="time" id="arrival-time">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="seat">Seat</label>
+            <input type="text" id="seat" placeholder="e.g. 14A" maxlength="10">
+          </div>
+          <div class="form-group" id="terminal-group">
+            <label for="terminal" id="terminal-label">Terminal</label>
+            <input type="text" id="terminal" placeholder="e.g. T3" maxlength="10">
+          </div>
+          <div class="form-group" id="gate-group">
+            <label for="gate" id="gate-label">Gate</label>
+            <input type="text" id="gate" placeholder="e.g. B22" maxlength="10">
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 0.5rem;">
+          <label for="notes">Notes</label>
+          <textarea id="notes" placeholder="Any additional info..." rows="2" maxlength="500"></textarea>
+        </div>
+
+        <div class="form-actions">
+          <button type="button" id="cancel-btn" class="btn-secondary">Cancel</button>
+          <button type="submit" class="btn-primary" id="submit-btn">Add Flight</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="flights-container">
+      <div id="empty-state" class="empty-state">
+        <span class="empty-icon">🌍</span>
+        <p>No trips yet. Add your first one!</p>
+      </div>
+      <ul id="flight-list" class="flight-list"></ul>
+    </div>
+
+    <div id="stats" class="stats" hidden>
+      <span id="total-flights">0 flights</span>
+    </div>
+  </div>
+
+  <!-- Detail Panel -->
+  <div id="detail-panel" class="detail-panel" hidden>
+    <div class="detail-header">
+      <button id="detail-back" class="detail-back-btn">← Back</button>
+      <button id="detail-delete" class="detail-delete-btn">Delete</button>
+    </div>
+    <div id="detail-map" class="detail-map"></div>
+    <div class="detail-body">
+      <div class="detail-route" id="detail-route"></div>
+      <div class="detail-fields" id="detail-fields"></div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
