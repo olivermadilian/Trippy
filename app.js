@@ -1,3 +1,4 @@
+const modalOverlay = document.getElementById('modal-overlay');
 const dialog = document.getElementById('flight-dialog');
 const form = document.getElementById('flight-form');
 const addBtn = document.getElementById('add-btn');
@@ -592,13 +593,28 @@ detailDelete.addEventListener('click', () => {
 
 // ── Dialog & Form ──
 
+function openModal() {
+  modalOverlay.classList.add('active');
+}
+
+function closeModal() {
+  modalOverlay.classList.remove('active');
+}
+
+// Close modal on Escape key
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && modalOverlay.classList.contains('active')) {
+    closeModal();
+  }
+});
+
 function openAddDialog() {
   editingId = null;
   form.reset();
   clearInputCoords();
   typeToggle.hidden = false;
   setType('flight');
-  dialog.showModal();
+  openModal();
 }
 
 function openEditDialog(tripId) {
@@ -633,7 +649,7 @@ function openEditDialog(tripId) {
   if (trip.fromLat != null) { fromInput.dataset.lat = trip.fromLat; fromInput.dataset.lng = trip.fromLng; }
   if (trip.toLat != null) { toInput.dataset.lat = trip.toLat; toInput.dataset.lng = trip.toLng; }
 
-  dialog.showModal();
+  openModal();
 }
 
 function clearInputCoords() {
@@ -676,10 +692,10 @@ typeBtns.forEach((btn) => {
 
 addBtn.addEventListener('click', () => openAddDialog());
 
-cancelBtn.addEventListener('click', () => dialog.close());
+cancelBtn.addEventListener('click', () => closeModal());
 
-dialog.addEventListener('click', (e) => {
-  if (e.target === dialog) dialog.close();
+modalOverlay.addEventListener('click', (e) => {
+  if (e.target === modalOverlay) closeModal();
 });
 
 form.addEventListener('submit', (e) => {
@@ -701,7 +717,7 @@ form.addEventListener('submit', (e) => {
   saveTrips(trips);
   renderTrips();
   editingId = null;
-  dialog.close();
+  closeModal();
 });
 
 // Click card → open detail panel

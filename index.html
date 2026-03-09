@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Trippy — Travel Tracker</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
   <div class="app" id="app-main">
@@ -16,8 +16,9 @@
 
     <button id="add-btn" class="add-btn">+ Add Trip</button>
 
-    <dialog id="flight-dialog">
-      <form id="flight-form" method="dialog">
+    <div id="modal-overlay" class="modal-overlay">
+      <div id="flight-dialog" class="modal-dialog">
+      <form id="flight-form">
         <h2 id="dialog-title">Add Flight</h2>
 
         <div class="type-toggle">
@@ -96,7 +97,8 @@
           <button type="submit" class="btn-primary" id="submit-btn">Add Flight</button>
         </div>
       </form>
-    </dialog>
+      </div>
+    </div>
 
     <div id="flights-container">
       <div id="empty-state" class="empty-state">
@@ -126,6 +128,6 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="data.js"></script>
-  <script src="app.js"></script>
+  <script src="app.js?v=6"></script>
 </body>
 </html>
