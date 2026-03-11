@@ -89,7 +89,10 @@ function AuthProvider({ children }) {
   }, []);
 
   const signIn = async () => {
-    await supabase.auth.signInWithOAuth({ provider: "google" });
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin },
+    });
   };
   const signOut = async () => {
     await supabase.auth.signOut();
@@ -429,7 +432,7 @@ function DetailPage({ tripId }) {
 
   const status = getTripStatus(trip);
   return (
-    <div style={{ margin: "-1.5rem -1rem" }} className="flex flex-col lg:flex-row min-h-[calc(100vh-48px)] sm:min-h-[calc(100vh-53px)]">
+    <div className="flex flex-col lg:flex-row min-h-[calc(100vh-48px)] sm:min-h-[calc(100vh-53px)]">
       {showShare && <SquawkModal trip={trip} onClose={() => setShowShare(false)} />}
       <div className="w-full lg:flex-1 relative" style={{ minHeight: "200px", height: "35vh" }}>
         <TripMap trip={trip} activeLegIndex={activeLeg} />

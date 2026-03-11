@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "trippy-backend",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server.js"],
+      "cwd": "trippy-backend",
+      "port": 3001
+    },
+    {
+      "name": "trippy-frontend",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--port", "5173"],
+      "cwd": "trippy-frontend",
+      "port": 5173
+    }
+  ]
+}
