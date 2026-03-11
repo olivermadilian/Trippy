@@ -1,7 +1,21 @@
 const { createUserClient } = require('../config/supabase');
+const path = require('path');
 
 const VALID_TYPES = ['flight', 'hotel', 'train', 'bus'];
 const VALID_STATUSES = ['scheduled', 'confirmed', 'in_air', 'in_transit', 'completed', 'cancelled'];
+
+// Load airport + station data for coordinate lookup
+const airports = require('../data/airports.json');
+const stations = require('../data/stations.json');
+const airportMap = new Map(airports.map(a => [a.code, a]));
+const stationMap = new Map(stations.map(s => [s.code, s]));
+
+// Look up coordinates by IATA/station code
+function resolveCoords(code) {
+  if (!code) return null;
+  const upper = code.toUpperCase();
+  return airportMap.get(upper) || stationMap.get(upper) || null;
+}
 
 async function addLeg(req, res) {
   const supabase = createUserClient(req.accessToken);
@@ -22,6 +36,21 @@ async function addLeg(req, res) {
 
   const nextOrder = existing && existing.length > 0 ? existing[0].sort_order + 1 : 0;
 
+  // Resolve coordinates — use provided values, fall back to airport/station data
+  const originCode = leg.origin_code ?? leg.origin?.code ?? null;
+  const destCode = leg.destination_code ?? leg.destination?.code ?? null;
+  const originRef = resolveCoords(originCode);
+  const destRef = resolveCoords(destCode);
+
+  let originLat = leg.origin_lat ?? leg.origin?.lat ?? null;
+  let originLng = leg.origin_lng ?? leg.origin?.lng ?? null;
+  let destLat = leg.destination_lat ?? leg.destination?.lat ?? null;
+  let destLng = leg.destination_lng ?? leg.destination?.lng ?? null;
+
+  // Auto-fill from airport data if coordinates are missing or zero
+  if ((!originLat || originLat === 0) && originRef) { originLat = originRef.lat; originLng = originRef.lng; }
+  if ((!destLat || destLat === 0) && destRef) { destLat = destRef.lat; destLng = destRef.lng; }
+
   const { data, error } = await supabase
     .from('legs')
     .insert({
@@ -29,20 +58,20 @@ async function addLeg(req, res) {
       sort_order: leg.sort_order ?? nextOrder,
       type: leg.type,
       status: leg.status || 'scheduled',
-      origin_code: leg.origin?.code || leg.origin_code || null,
-      origin_city: leg.origin?.city || leg.origin_city || null,
-      origin_lat: leg.origin?.lat || leg.origin_lat || null,
-      origin_lng: leg.origin?.lng || leg.origin_lng || null,
-      destination_code: leg.destination?.code || leg.destination_code || null,
-      destination_city: leg.destination?.city || leg.destination_city || null,
-      destination_lat: leg.destination?.lat || leg.destination_lat || null,
-      destination_lng: leg.destination?.lng || leg.destination_lng || null,
-      depart_time: leg.depart_time || null,
-      arrive_time: leg.arrive_time || null,
-      carrier: leg.carrier || null,
-      vehicle_number: leg.vehicle_number || null,
+      origin_code: originCode,
+      origin_city: leg.origin_city ?? leg.origin?.city ?? originRef?.city ?? null,
+      origin_lat: originLat,
+      origin_lng: originLng,
+      destination_code: destCode,
+      destination_city: leg.destination_city ?? leg.destination?.city ?? destRef?.city ?? null,
+      destination_lat: destLat,
+      destination_lng: destLng,
+      depart_time: leg.depart_time ?? null,
+      arrive_time: leg.arrive_time ?? null,
+      carrier: leg.carrier ?? null,
+      vehicle_number: leg.vehicle_number ?? null,
       metadata: leg.metadata || {},
-      notes: leg.notes || null
+      notes: leg.notes ?? null
     })
     .select()
     .single();
