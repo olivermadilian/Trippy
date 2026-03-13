@@ -105,6 +105,145 @@ function AuthProvider({ children }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// THEME SYSTEM
+// ═══════════════════════════════════════════════════════════════════
+
+const NIGHT_TOKENS = {
+  "--bg-primary": "#000000",
+  "--bg-card": "#050a05",
+  "--bg-card-hotel": "#0a0806",
+  "--bg-surface": "#0a100a",
+  "--bg-map": "#000000",
+  "--border-primary": "#1a2a1a",
+  "--border-hotel": "#1e1e14",
+  "--border-subtle": "#0f1a0f",
+  "--text-primary": "#b8e8b8",
+  "--text-secondary": "#2a4a2a",
+  "--text-tertiary": "#1a3a1a",
+  "--text-heading": "#b8e8b8",
+  "--accent-flight": "#22c55e",
+  "--accent-flight-bright": "#4aff4a",
+  "--accent-hotel": "#c9993a",
+  "--accent-hotel-text": "#d4c8a0",
+  "--accent-hotel-dim": "#3a3420",
+  "--accent-countdown": "#c9993a",
+  "--map-grid": "#081008",
+  "--map-arc": "#22c55e",
+  "--map-arc-return": "rgba(34, 197, 94, 0.3)",
+  "--map-label": "#4aff4a",
+  "--map-dot": "#4aff4a",
+  "--map-dwell-glow": "rgba(201, 153, 58, 0.07)",
+  "--map-distance": "#1a3a1a",
+  "--map-land": "none",
+  "--map-land-stroke": "none",
+  "--nav-bg": "#0c120c",
+  "--nav-border": "#1a2a1a",
+  "--nav-text": "#3a6a3a",
+  "--nav-text-active": "#4aff4a",
+  "--squawk-bg": "#22c55e",
+  "--squawk-text": "#000000",
+  "--stats-value": "#4aff4a",
+  "--stats-label": "#1a3a1a",
+  "--timeline-rail": "#1a2a1a",
+  "--timeline-dot-border": "#22c55e",
+  "--timeline-dot-bg": "#000000",
+  "--strip-flight": "#22c55e",
+  "--strip-hotel": "#c9993a",
+};
+
+const DAY_TOKENS = {
+  "--bg-primary": "#f0f4f2",
+  "--bg-card": "#e8eee8",
+  "--bg-card-hotel": "#f2eee2",
+  "--bg-surface": "#e8eee8",
+  "--bg-map": "#e6ece8",
+  "--border-primary": "#c8d4c8",
+  "--border-hotel": "#d4ccb0",
+  "--border-subtle": "#d0dcd4",
+  "--text-primary": "#1a1a18",
+  "--text-secondary": "#7a8a80",
+  "--text-tertiary": "#8a9890",
+  "--text-heading": "#1a1a18",
+  "--accent-flight": "#1a5c3a",
+  "--accent-flight-bright": "#1a5c3a",
+  "--accent-hotel": "#c9993a",
+  "--accent-hotel-text": "#3a2e0a",
+  "--accent-hotel-dim": "#a09878",
+  "--accent-countdown": "#7a5a10",
+  "--map-grid": "#d4dcd6",
+  "--map-arc": "#1a5c3a",
+  "--map-arc-return": "rgba(26, 92, 58, 0.3)",
+  "--map-label": "#1a5c3a",
+  "--map-dot": "#1a5c3a",
+  "--map-dwell-glow": "rgba(201, 153, 58, 0.07)",
+  "--map-distance": "#8aa890",
+  "--map-land": "#dce4de",
+  "--map-land-stroke": "#c0ccc4",
+  "--nav-bg": "#e8ecea",
+  "--nav-border": "#b8c4be",
+  "--nav-text": "#5a6a60",
+  "--nav-text-active": "#2a2a28",
+  "--squawk-bg": "#1a5c3a",
+  "--squawk-text": "#eef4ee",
+  "--stats-value": "#1a5c3a",
+  "--stats-label": "#8a9890",
+  "--timeline-rail": "#b8ccbe",
+  "--timeline-dot-border": "#1a5c3a",
+  "--timeline-dot-bg": "#f0f4f2",
+  "--strip-flight": "#1a5c3a",
+  "--strip-hotel": "#c9993a",
+};
+
+function computeMode(pref) {
+  if (pref === "day" || pref === "night") return pref;
+  const h = new Date().getHours();
+  return (h >= 7 && h < 19) ? "day" : "night";
+}
+
+function applyTheme(mode) {
+  const tokens = mode === "night" ? NIGHT_TOKENS : DAY_TOKENS;
+  Object.entries(tokens).forEach(([key, value]) => {
+    document.documentElement.style.setProperty(key, value);
+  });
+}
+
+const ThemeContext = createContext();
+function useTheme() { return useContext(ThemeContext); }
+
+function ThemeProvider({ children }) {
+  const [pref, setPrefState] = useState(() => {
+    try { return localStorage.getItem("triptrack-theme") || "auto"; } catch { return "auto"; }
+  });
+  const [mode, setMode] = useState(() => computeMode(pref));
+
+  const setPref = (newPref) => {
+    setPrefState(newPref);
+    try { localStorage.setItem("triptrack-theme", newPref); } catch {}
+    const newMode = computeMode(newPref);
+    setMode(newMode);
+    applyTheme(newMode);
+  };
+
+  useEffect(() => {
+    applyTheme(mode);
+  }, []);
+
+  useEffect(() => {
+    if (pref !== "auto") return;
+    const interval = setInterval(() => {
+      const newMode = computeMode("auto");
+      setMode(prev => {
+        if (prev !== newMode) { applyTheme(newMode); return newMode; }
+        return prev;
+      });
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [pref]);
+
+  return <ThemeContext.Provider value={{ mode, pref, setPref }}>{children}</ThemeContext.Provider>;
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // ROUTER CONTEXT + CONSTANTS
 // ═══════════════════════════════════════════════════════════════════
 
@@ -361,33 +500,236 @@ function DashboardPage() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MAP
+// DETAIL HELPERS
 // ═══════════════════════════════════════════════════════════════════
 
-function TripMap({ trip, activeLegIndex }) {
+function haversineNM(lat1, lon1, lat2, lon2) {
+  const R = 6371, toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) / 1.852;
+}
+
+function computeTripStats(legs) {
+  let totalNM = 0, airMs = 0, hotelNights = 0;
+  (legs || []).forEach(l => {
+    if (l.type !== "hotel" && l.origin?.lat != null && l.destination?.lat != null) {
+      totalNM += haversineNM(l.origin.lat, l.origin.lng, l.destination.lat, l.destination.lng);
+      if (l.depart_time && l.arrive_time) airMs += new Date(l.arrive_time) - new Date(l.depart_time);
+    }
+    if (l.type === "hotel") hotelNights += l.metadata?.nights || (l.depart_time && l.arrive_time ? Math.max(1, Math.round((new Date(l.arrive_time) - new Date(l.depart_time)) / 86400000)) : 1);
+  });
+  const airH = Math.floor(airMs / 3600000), airM = Math.floor((airMs % 3600000) / 60000);
+  return { totalNM: Math.round(totalNM), airTime: `${airH}H ${airM}M`, hotelNights };
+}
+
+function getCountdown(trip) {
+  const status = getTripStatus(trip);
+  if (status === "completed") return { text: "COMPLETE", label: "FLIGHT PLAN ARCHIVED" };
+  if (status === "live" || status === "active") return { text: "EN ROUTE", label: "FLIGHT PLAN ACTIVE" };
+  const first = trip.legs?.[0];
+  if (!first?.depart_time) return { text: "PENDING", label: "FLIGHT PLAN FILED" };
+  const ms = new Date(first.depart_time).getTime() - Date.now();
+  if (ms <= 0) return { text: "EN ROUTE", label: "FLIGHT PLAN ACTIVE" };
+  const d = Math.floor(ms / 86400000), h = Math.floor((ms % 86400000) / 3600000), m = Math.floor((ms % 3600000) / 60000);
+  return { text: d >= 1 ? `T-${d}D ${h}H` : `T-${h}H ${m}M`, label: "FLIGHT PLAN FILED" };
+}
+
+function formatCoord(lat, lng) {
+  const latDir = lat >= 0 ? "N" : "S", lngDir = lng >= 0 ? "E" : "W";
+  return `${Math.abs(lat).toFixed(2)}\u00B0${latDir} ${Math.abs(lng).toFixed(2)}\u00B0${lngDir}`;
+}
+
+const STRIP_COLORS = { flight: "var(--strip-flight)", hotel: "var(--strip-hotel)", train: "#d4628a", bus: "#7c6bb4" };
+
+// ═══════════════════════════════════════════════════════════════════
+// ROUTE SUMMARY BAR
+// ═══════════════════════════════════════════════════════════════════
+
+function RouteSummaryBar({ legs }) {
+  if (!legs?.length) return null;
+  const segments = [];
+  legs.forEach((leg, i) => {
+    const isHotel = leg.type === "hotel";
+    if (isHotel) {
+      const nights = leg.metadata?.nights || (leg.depart_time && leg.arrive_time ? Math.max(1, Math.round((new Date(leg.arrive_time) - new Date(leg.depart_time)) / 86400000)) : 1);
+      segments.push({ type: "hotel", label: `${nights}N`, city: leg.origin?.city });
+    } else {
+      const dur = formatDuration(leg.depart_time, leg.arrive_time);
+      segments.push({ type: "transport", origin: leg.origin?.code || leg.origin?.city?.slice(0, 3)?.toUpperCase() || "?", destination: leg.destination?.code || leg.destination?.city?.slice(0, 3)?.toUpperCase() || "?", duration: dur, legType: leg.type });
+    }
+  });
+
+  return (
+    <div className="flex items-center gap-1 px-3 py-2 overflow-x-auto" style={{ border: "1px solid var(--border-primary)", borderRadius: "4px", background: "var(--bg-surface)" }}>
+      {segments.map((seg, i) => {
+        if (seg.type === "hotel") {
+          return <div key={i} className="flex items-center gap-1 shrink-0">
+            <span style={{ width: 16, height: 0, borderTop: "1px dashed var(--accent-hotel)", display: "inline-block" }} />
+            <span style={{ fontFamily: FONT, fontSize: "11px", fontWeight: 600, color: "var(--accent-hotel)" }}>{seg.label}</span>
+            <span style={{ width: 16, height: 0, borderTop: "1px dashed var(--accent-hotel)", display: "inline-block" }} />
+          </div>;
+        }
+        return <div key={i} className="flex items-center gap-1 shrink-0">
+          <span style={{ fontFamily: FONT, fontSize: "15px", fontWeight: 700, color: "var(--accent-flight-bright)", letterSpacing: "1px" }}>{seg.origin}</span>
+          <div className="flex items-center" style={{ minWidth: 32 }}>
+            <span style={{ flex: 1, height: 0, borderTop: "1px solid var(--border-primary)", display: "inline-block" }} />
+            <span style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)", padding: "0 3px", background: "var(--bg-surface)", whiteSpace: "nowrap" }}>{seg.duration}</span>
+            <span style={{ flex: 1, height: 0, borderTop: "1px solid var(--border-primary)", display: "inline-block" }} />
+          </div>
+          <span style={{ fontFamily: FONT, fontSize: "15px", fontWeight: 700, color: "var(--accent-flight-bright)", letterSpacing: "1px" }}>{seg.destination}</span>
+        </div>;
+      })}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// MAP (radar aesthetic)
+// ═══════════════════════════════════════════════════════════════════
+
+function TripMap({ trip, activeLegIndex, mode }) {
   const svgRef = useRef(null), containerRef = useRef(null);
   const draw = useCallback(() => {
     const el = containerRef.current, svg = d3.select(svgRef.current); if (!el) return;
     const w = el.clientWidth, h = el.clientHeight; svg.attr("width", w).attr("height", h).selectAll("*").remove();
-    const defs = svg.append("defs"); const glow = defs.append("filter").attr("id", "glow").attr("x", "-50%").attr("y", "-50%").attr("width", "200%").attr("height", "200%"); glow.append("feGaussianBlur").attr("stdDeviation", "4").attr("result", "b"); const gm = glow.append("feMerge"); gm.append("feMergeNode").attr("in", "b"); gm.append("feMergeNode").attr("in", "SourceGraphic");
+    const isDay = mode === "day";
+    const defs = svg.append("defs");
+    const glow = defs.append("filter").attr("id", "glow").attr("x", "-50%").attr("y", "-50%").attr("width", "200%").attr("height", "200%");
+    glow.append("feGaussianBlur").attr("stdDeviation", "4").attr("result", "b");
+    const gm = glow.append("feMerge"); gm.append("feMergeNode").attr("in", "b"); gm.append("feMergeNode").attr("in", "SourceGraphic");
+
+    // Radar grid pattern
+    const gridSize = 34;
+    defs.append("pattern").attr("id", "radar-grid").attr("width", gridSize).attr("height", gridSize).attr("patternUnits", "userSpaceOnUse")
+      .append("path").attr("d", `M ${gridSize} 0 L 0 0 0 ${gridSize}`).attr("fill", "none").attr("stroke", "var(--map-grid)").attr("stroke-width", 0.5);
+
     const allC = []; trip.legs?.forEach(l => { if (l.origin?.lat != null) allC.push([l.origin.lng, l.origin.lat]); if (l.destination?.lat != null) allC.push([l.destination.lng, l.destination.lat]); });
-    if (allC.length === 0) { svg.append("rect").attr("width", w).attr("height", h).attr("fill", "#08080a"); svg.append("text").attr("x", w / 2).attr("y", h / 2).attr("text-anchor", "middle").attr("fill", C.textGhost).attr("font-size", "10px").attr("font-family", FONT).text("No route data"); return; }
-    const aLeg = trip.legs?.[activeLegIndex]; let focus = allC; if (aLeg) { focus = []; if (aLeg.origin?.lat != null) focus.push([aLeg.origin.lng, aLeg.origin.lat]); if (aLeg.destination?.lat != null) focus.push([aLeg.destination.lng, aLeg.destination.lat]); if (aLeg.type === "hotel" && focus.length > 0) { const c = focus[0]; focus = [[c[0] - 2, c[1] - 1.5], [c[0] + 2, c[1] + 1.5]]; } } if (focus.length < 2) focus = allC;
-    const pad = 40, proj = d3.geoMercator().fitExtent([[pad, pad], [w - pad, h - pad]], { type: "MultiPoint", coordinates: focus }), path = d3.geoPath(proj);
-    svg.append("rect").attr("width", w).attr("height", h).attr("fill", "#08080a");
+    if (allC.length === 0) {
+      svg.append("rect").attr("width", w).attr("height", h).attr("fill", "var(--bg-map)");
+      svg.append("rect").attr("width", "100%").attr("height", "100%").attr("fill", "url(#radar-grid)");
+      svg.append("text").attr("x", w / 2).attr("y", h / 2).attr("text-anchor", "middle").attr("fill", "var(--text-tertiary)").attr("font-size", "10px").attr("font-family", FONT).text("No route data");
+      return;
+    }
+
+    const pad = 40, proj = d3.geoMercator().fitExtent([[pad, pad], [w - pad, h - pad]], { type: "MultiPoint", coordinates: allC }), path = d3.geoPath(proj);
+
+    // Background + grid
+    svg.append("rect").attr("width", w).attr("height", h).attr("fill", "var(--bg-map)");
+    svg.append("rect").attr("width", "100%").attr("height", "100%").attr("fill", "url(#radar-grid)");
+
+    // Land
     const land = topojson.feature(worldData, worldData.objects.land);
     const borders = topojson.mesh(worldData, worldData.objects.countries, (a, b) => a !== b);
-    svg.append("path").datum(land).attr("d", path).attr("fill", "rgba(255,255,255,0.04)").attr("stroke", "none");
-    svg.append("path").datum(borders).attr("d", path).attr("fill", "none").attr("stroke", "rgba(255,255,255,0.06)").attr("stroke-width", 0.5);
-    svg.append("path").datum(d3.geoGraticule().step([10, 10])()).attr("d", path).attr("fill", "none").attr("stroke", "rgba(255,255,255,0.02)").attr("stroke-width", 0.3);
-    trip.legs?.forEach((leg, i) => { if (leg.origin?.lat == null || leg.destination?.lat == null || (leg.origin.lat === leg.destination.lat && leg.origin.lng === leg.destination.lng)) return; const coords = leg.type === "flight" ? interpolateGC([leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat]) : [[leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat]]; const lineGen = d3.line().x(d => proj(d)[0]).y(d => proj(d)[1]).curve(leg.type === "flight" ? d3.curveBasis : d3.curveLinear); const isA = i === activeLegIndex, color = C[leg.type]; svg.append("path").datum(coords).attr("d", lineGen).attr("fill", "none").attr("stroke", color).attr("stroke-width", isA ? 2.5 : 1).attr("stroke-opacity", isA ? 0.9 : 0.12).attr("stroke-dasharray", leg.type === "train" ? "6,4" : leg.type === "bus" ? "3,3" : "none").attr("filter", isA ? "url(#glow)" : "none"); });
-    const cities = new Map(); trip.legs?.forEach(l => { if (l.origin?.lat != null) cities.set(`${l.origin.lat},${l.origin.lng}`, { ...l.origin, coords: [l.origin.lng, l.origin.lat] }); if (l.destination?.lat != null) cities.set(`${l.destination.lat},${l.destination.lng}`, { ...l.destination, coords: [l.destination.lng, l.destination.lat] }); });
-    const activeKeys = new Set(); if (aLeg) { if (aLeg.origin?.lat != null) activeKeys.add(`${aLeg.origin.lat},${aLeg.origin.lng}`); if (aLeg.destination?.lat != null) activeKeys.add(`${aLeg.destination.lat},${aLeg.destination.lng}`); }
-    cities.forEach((city, key) => { const [x, y] = proj(city.coords), isA = activeKeys.has(key); if (isA) svg.append("circle").attr("cx", x).attr("cy", y).attr("r", 7).attr("fill", "rgba(255,255,255,0.04)"); svg.append("circle").attr("cx", x).attr("cy", y).attr("r", isA ? 3.5 : 2).attr("fill", isA ? C.text : "rgba(255,255,255,0.3)"); svg.append("text").attr("x", x).attr("y", y - (isA ? 12 : 8)).attr("text-anchor", "middle").attr("fill", isA ? "rgba(255,255,255,0.8)" : "rgba(255,255,255,0.25)").attr("font-size", isA ? "10px" : "8px").attr("font-family", FONT).attr("font-weight", isA ? 700 : 400).attr("letter-spacing", "1px").text(city.code || city.city); });
-    if (aLeg) { const lp = getLivePos(aLeg); if (lp) { const [px, py] = proj([lp.lng, lp.lat]), color = C[aLeg.type]; const ping = svg.append("circle").attr("cx", px).attr("cy", py).attr("r", 5).attr("fill", "none").attr("stroke", color).attr("stroke-width", 1.5).attr("opacity", 0); (function anim() { ping.attr("r", 5).attr("opacity", 0.6).transition().duration(1800).ease(d3.easeQuadOut).attr("r", 22).attr("opacity", 0).on("end", anim); })(); svg.append("circle").attr("cx", px).attr("cy", py).attr("r", 5).attr("fill", color).attr("filter", "url(#glow)"); svg.append("circle").attr("cx", px).attr("cy", py).attr("r", 2).attr("fill", "#fff"); } if (aLeg.type === "hotel" && aLeg.origin?.lat != null) { const [hx, hy] = proj([aLeg.origin.lng, aLeg.origin.lat]); svg.append("rect").attr("x", hx - 44).attr("y", hy + 10).attr("width", 88).attr("height", 18).attr("rx", 2).attr("fill", "rgba(0,0,0,0.7)").attr("stroke", C.hotel).attr("stroke-width", 0.5); svg.append("text").attr("x", hx).attr("y", hy + 22).attr("text-anchor", "middle").attr("fill", C.hotel).attr("font-size", "8px").attr("font-family", FONT).attr("font-weight", 700).text(aLeg.carrier?.length > 16 ? aLeg.carrier.slice(0, 15) + "…" : aLeg.carrier); } }
-  }, [trip, activeLegIndex]);
+    if (isDay) {
+      svg.append("path").datum(land).attr("d", path).attr("fill", "var(--map-land)").attr("stroke", "var(--map-land-stroke)").attr("stroke-width", 0.8);
+      svg.append("path").datum(borders).attr("d", path).attr("fill", "none").attr("stroke", "var(--map-land-stroke)").attr("stroke-width", 0.5);
+    } else {
+      svg.append("path").datum(borders).attr("d", path).attr("fill", "none").attr("stroke", "var(--map-grid)").attr("stroke-width", 0.5);
+    }
+
+    // Hotel dwell glow
+    trip.legs?.forEach(leg => {
+      if (leg.type === "hotel" && leg.origin?.lat != null) {
+        const [hx, hy] = proj([leg.origin.lng, leg.origin.lat]);
+        svg.append("circle").attr("cx", hx).attr("cy", hy).attr("r", 22).attr("fill", "var(--map-dwell-glow)");
+        svg.append("circle").attr("cx", hx).attr("cy", hy).attr("r", 16).attr("fill", "var(--accent-hotel)").attr("opacity", 0.08);
+      }
+    });
+
+    // Arcs
+    let isFirstTransport = true;
+    trip.legs?.forEach((leg, i) => {
+      if (leg.origin?.lat == null || leg.destination?.lat == null || (leg.origin.lat === leg.destination.lat && leg.origin.lng === leg.destination.lng)) { if (leg.type !== "hotel") isFirstTransport = false; return; }
+      if (leg.type === "hotel") return;
+      const coords = leg.type === "flight" ? interpolateGC([leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat]) : [[leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat]];
+      const lineGen = d3.line().x(d => proj(d)[0]).y(d => proj(d)[1]).curve(leg.type === "flight" ? d3.curveBasis : d3.curveLinear);
+      if (isFirstTransport) {
+        svg.append("path").datum(coords).attr("d", lineGen).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 2.5).attr("stroke-linecap", "round");
+        isFirstTransport = false;
+      } else {
+        svg.append("path").datum(coords).attr("d", lineGen).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 1.5).attr("stroke-dasharray", "6,4").attr("opacity", 0.3);
+      }
+    });
+
+    // Airport markers
+    const cities = new Map();
+    trip.legs?.forEach(l => {
+      if (l.origin?.lat != null) cities.set(`${l.origin.lat},${l.origin.lng}`, { ...l.origin, coords: [l.origin.lng, l.origin.lat] });
+      if (l.destination?.lat != null) cities.set(`${l.destination.lat},${l.destination.lng}`, { ...l.destination, coords: [l.destination.lng, l.destination.lat] });
+    });
+    cities.forEach((city) => {
+      const [x, y] = proj(city.coords);
+      svg.append("circle").attr("cx", x).attr("cy", y).attr("r", 12).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 0.3).attr("opacity", 0.2);
+      svg.append("circle").attr("cx", x).attr("cy", y).attr("r", 7).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 0.5).attr("opacity", 0.4);
+      svg.append("circle").attr("cx", x).attr("cy", y).attr("r", 3.5).attr("fill", "var(--map-dot)");
+      svg.append("text").attr("x", x).attr("y", y - 14).attr("text-anchor", "middle").attr("fill", "var(--map-label)").attr("font-size", "11px").attr("font-family", FONT).attr("font-weight", 600).attr("letter-spacing", "1px").text(city.code || city.city);
+    });
+
+    // Distance label
+    const stats = computeTripStats(trip.legs);
+    if (stats.totalNM > 0) {
+      svg.append("text").attr("x", w / 2).attr("y", 20).attr("text-anchor", "middle").attr("fill", "var(--map-distance)").attr("font-size", "8px").attr("font-family", FONT).attr("letter-spacing", "1px").text(`${stats.totalNM.toLocaleString()} NM`);
+    }
+
+    // Live position dot
+    const aLeg = trip.legs?.[activeLegIndex];
+    if (aLeg) {
+      const lp = getLivePos(aLeg);
+      if (lp) {
+        const [px, py] = proj([lp.lng, lp.lat]);
+        const ping = svg.append("circle").attr("cx", px).attr("cy", py).attr("r", 5).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 1.5).attr("opacity", 0);
+        (function anim() { ping.attr("r", 5).attr("opacity", 0.6).transition().duration(1800).ease(d3.easeQuadOut).attr("r", 22).attr("opacity", 0).on("end", anim); })();
+        svg.append("circle").attr("cx", px).attr("cy", py).attr("r", 5).attr("fill", "var(--map-arc)").attr("filter", "url(#glow)");
+        svg.append("circle").attr("cx", px).attr("cy", py).attr("r", 2).attr("fill", "var(--bg-primary)");
+      }
+    }
+  }, [trip, activeLegIndex, mode]);
+
   useEffect(() => { draw(); const h = () => draw(); window.addEventListener("resize", h); return () => window.removeEventListener("resize", h); }, [draw]);
-  return <div ref={containerRef} className="w-full h-full" style={{ background: "#08080a" }}><svg ref={svgRef} className="w-full h-full" /></div>;
+
+  // Coordinate overlay
+  const firstLeg = trip.legs?.[0], lastLeg = trip.legs?.[trip.legs.length - 1];
+  const originCoord = firstLeg?.origin?.lat != null ? formatCoord(firstLeg.origin.lat, firstLeg.origin.lng) : null;
+  const destCoord = lastLeg?.destination?.lat != null ? formatCoord(lastLeg.destination.lat, lastLeg.destination.lng) : null;
+
+  return (
+    <div ref={containerRef} className="w-full h-full relative" style={{ background: "var(--bg-map)" }}>
+      <svg ref={svgRef} className="w-full h-full" />
+      {(originCoord || destCoord) && (
+        <div className="absolute top-2 right-2" style={{ fontFamily: FONT, fontSize: "8px", color: "var(--map-distance)", letterSpacing: "0.5px", lineHeight: 1.6, textAlign: "right" }}>
+          {originCoord && <div>{originCoord}</div>}
+          {destCoord && <div>{destCoord}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// STATS FOOTER
+// ═══════════════════════════════════════════════════════════════════
+
+function StatsFooter({ legs }) {
+  const stats = computeTripStats(legs);
+  return (
+    <div className="flex justify-around items-center mx-4 my-3 px-3 py-2.5" style={{ border: "1px solid var(--border-subtle)", borderRadius: "6px", background: "var(--bg-surface)" }}>
+      <div className="text-center">
+        <div style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 600, color: "var(--stats-value)" }}>{stats.totalNM.toLocaleString()}</div>
+        <div style={{ fontFamily: FONT, fontSize: "7px", letterSpacing: "2px", color: "var(--stats-label)", marginTop: 2 }}>TOTAL NM</div>
+      </div>
+      <div style={{ width: 1, height: 28, background: "var(--border-subtle)" }} />
+      <div className="text-center">
+        <div style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 600, color: "var(--stats-value)" }}>{stats.airTime}</div>
+        <div style={{ fontFamily: FONT, fontSize: "7px", letterSpacing: "2px", color: "var(--stats-label)", marginTop: 2 }}>AIR TIME</div>
+      </div>
+      <div style={{ width: 1, height: 28, background: "var(--border-subtle)" }} />
+      <div className="text-center">
+        <div style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 600, color: "var(--accent-countdown)" }}>{stats.hotelNights}N</div>
+        <div style={{ fontFamily: FONT, fontSize: "7px", letterSpacing: "2px", color: "var(--stats-label)", marginTop: 2 }}>ON GROUND</div>
+      </div>
+    </div>
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -396,6 +738,7 @@ function TripMap({ trip, activeLegIndex }) {
 
 function DetailPage({ tripId }) {
   const { navigate } = useRouter();
+  const { mode } = useTheme();
   const [trip, setTrip] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeLeg, setActiveLeg] = useState(0);
@@ -412,7 +755,7 @@ function DetailPage({ tripId }) {
   const [bHN, setBHN] = useState(""); const [bHC, setBHC] = useState(""); const [bHI, setBHI] = useState(""); const [bHO, setBHO] = useState("");
   const [bO, setBO] = useState(""); const [bD, setBD] = useState(""); const [bDt, setBDt] = useState(""); const [bTm, setBTm] = useState("");
   const resetBuilder = () => { setBFN(""); setBLoading(false); setBAF(null); setBErr(null); setBHN(""); setBHC(""); setBHI(""); setBHO(""); setBO(""); setBD(""); setBDt(""); setBTm(""); };
-  const typeCfg = { flight: { label: "FLIGHT", color: C.flight }, hotel: { label: "HOTEL", color: C.hotel }, train: { label: "TRAIN", color: C.train }, bus: { label: "BUS", color: C.bus } };
+  const typeCfg = { flight: { label: "FLIGHT", color: "var(--strip-flight)" }, hotel: { label: "GROUND STOP", color: "var(--strip-hotel)" }, train: { label: "TRAIN", color: "#d4628a" }, bus: { label: "BUS", color: "#7c6bb4" } };
 
   const fetchTrip = async () => { setLoading(true); try { const t = await api(`/trips/${tripId}`); setTrip(mapTrip(t)); } catch (e) { setTrip(null); } setLoading(false); };
   useEffect(() => { fetchTrip(); }, [tripId]);
@@ -435,73 +778,175 @@ function DetailPage({ tripId }) {
   };
 
   if (loading) return <LoadingScreen />;
-  if (!trip) return <div className="text-center py-12"><p className="text-xs" style={{ color: C.textDim, fontFamily: FONT }}>Trip not found</p><button onClick={() => navigate("dashboard")} className="mt-3 text-xs font-bold tracking-widest" style={{ color: C.red, fontFamily: FONT }}>DASHBOARD</button></div>;
+  if (!trip) return <div className="text-center py-12"><p className="text-xs" style={{ color: "var(--text-secondary)", fontFamily: FONT }}>Trip not found</p><button onClick={() => navigate("dashboard")} className="mt-3 text-xs font-bold tracking-widest" style={{ color: "var(--accent-flight)", fontFamily: FONT }}>DASHBOARD</button></div>;
 
   const status = getTripStatus(trip);
+  const countdown = getCountdown(trip);
+  const segmentCount = (trip.legs || []).filter(l => l.type !== "hotel").length;
+
   return (
-    <div className="flex flex-col lg:flex-row min-h-[calc(100vh-48px)] sm:min-h-[calc(100vh-53px)]">
+    <div className="min-h-[calc(100vh-48px)] sm:min-h-[calc(100vh-53px)]" style={{ background: "var(--bg-primary)" }}>
       {showShare && <SquawkModal trip={trip} onClose={() => setShowShare(false)} />}
-      <div className="w-full lg:flex-1 relative" style={{ minHeight: "250px", height: "40vh" }}>
-        <TripMap trip={trip} activeLegIndex={activeLeg} />
-        <div className="absolute top-2 left-2 sm:top-3 sm:left-3 rounded px-2.5 py-2" style={{ background: "rgba(8,8,10,0.85)", border: `1px solid ${C.border}`, backdropFilter: "blur(8px)", maxWidth: "calc(100% - 80px)" }}>
-          <div className="flex items-center gap-2"><button onClick={() => navigate("dashboard")} className="text-xs shrink-0" style={{ color: C.textDim, fontFamily: FONT, fontSize: "10px" }}>← BACK</button><span style={{ color: C.textGhost }}>|</span><span className="text-xs font-bold truncate" style={{ color: C.text, fontFamily: FONT }}>{trip.title.toUpperCase()}</span><StatusBadge status={status} /></div>
+
+      {/* Nav bar */}
+      <div className="flex items-center justify-between px-4 py-2">
+        <button onClick={() => navigate("dashboard")} className="flex items-center justify-center" style={{ width: 44, height: 44, border: "1px solid var(--nav-border)", borderRadius: 8, background: "var(--nav-bg)", color: "var(--nav-text-active)", fontFamily: FONT, fontSize: "16px" }}>{"\u2190"}</button>
+        <div className="flex gap-1.5">
+          {editing ? (
+            <>
+              <button onClick={cancelEdit} className="flex items-center justify-center px-4" style={{ height: 44, border: "1px solid var(--nav-border)", borderRadius: 8, background: "var(--nav-bg)", color: "var(--nav-text)", fontFamily: FONT, fontSize: "10px", letterSpacing: "2px", fontWeight: 700 }}>CANCEL</button>
+              <button onClick={saveEdit} disabled={saving} className="flex items-center justify-center px-4" style={{ height: 44, border: "1px solid var(--accent-flight)", borderRadius: 8, background: "var(--accent-flight)", color: "var(--bg-primary)", fontFamily: FONT, fontSize: "10px", letterSpacing: "2px", fontWeight: 700 }}>{saving ? <Spinner /> : "SAVE"}</button>
+            </>
+          ) : (
+            <>
+              <button onClick={enterEdit} className="flex items-center justify-center px-4" style={{ height: 44, border: "1px solid var(--nav-border)", borderRadius: 8, background: "var(--nav-bg)", color: "var(--nav-text)", fontFamily: FONT, fontSize: "10px", letterSpacing: "2px", fontWeight: 700 }}>EDIT</button>
+              <button onClick={() => setShowShare(true)} className="flex items-center justify-center px-4" style={{ height: 44, border: "1px solid var(--accent-flight)", borderRadius: 8, background: "var(--squawk-bg)", color: "var(--squawk-text)", fontFamily: FONT, fontSize: "10px", letterSpacing: "2px", fontWeight: 700 }}>SQUAWK</button>
+            </>
+          )}
         </div>
-        <div className="absolute top-2 right-2 sm:top-3 sm:right-3 flex gap-1.5">
-          {!editing && <button onClick={enterEdit} className="flex items-center gap-2 text-xs font-bold px-3 py-2 rounded" style={{ background: "rgba(8,8,10,0.85)", border: `1px solid ${C.border}`, color: C.textMid, fontFamily: FONT, fontSize: "10px", letterSpacing: "1px", backdropFilter: "blur(8px)" }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M17 3a2.85 2.85 0 114 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>EDIT</button>}
-          <button onClick={() => setShowShare(true)} className="flex items-center gap-2 text-xs font-bold px-3 py-2 rounded" style={{ background: "rgba(8,8,10,0.85)", border: `1px solid ${C.border}`, color: C.textMid, fontFamily: FONT, fontSize: "10px", letterSpacing: "1px", backdropFilter: "blur(8px)" }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8" /><polyline points="16 6 12 2 8 6" /><line x1="12" y1="2" x2="12" y2="15" /></svg>SHARE</button>
-        </div>
-        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">{trip.legs?.map((leg, i) => <button key={leg.id} onClick={() => setActiveLeg(i)} className="rounded-full transition-all duration-300" style={{ width: i === activeLeg ? "20px" : "6px", height: "6px", background: i === activeLeg ? C[leg.type] : "rgba(255,255,255,0.15)" }} />)}</div>
       </div>
 
-      <div className="w-full lg:w-96 lg:border-l overflow-y-auto flex-1 lg:flex-none" style={{ borderColor: C.border }}>
-        <div className="p-3 sm:p-4">
-          {editing && (
-            <div className="mb-4 pb-4" style={{ borderBottom: `1px solid ${C.border}` }}>
-              <div className="flex items-center justify-between mb-3"><span className="text-xs font-bold tracking-widest" style={{ color: C.amber, fontFamily: FONT, fontSize: "9px", letterSpacing: "2px" }}>EDITING</span><div className="flex gap-2"><button onClick={cancelEdit} className="text-xs font-bold px-2.5 py-1 rounded" style={{ color: C.textDim, fontFamily: FONT, fontSize: "9px" }}>CANCEL</button><button onClick={saveEdit} disabled={saving} className="text-xs font-bold px-3 py-1 rounded" style={{ background: C.green, color: "#fff", fontFamily: FONT, fontSize: "9px" }}>{saving ? <Spinner /> : "SAVE"}</button></div></div>
-              <div className="mb-3"><Label>DESIGNATION</Label><input type="text" value={editTitle} onChange={e => setEditTitle(e.target.value)} className="w-full px-0 py-1.5 border-0 border-b outline-none text-sm font-bold" style={{ background: "transparent", borderColor: C.borderHover, color: C.text, fontFamily: FONT }} /></div>
-              <div className="grid grid-cols-2 gap-3"><div><Label>DEPART</Label><Input type="date" value={editStart} onChange={e => setEditStart(e.target.value)} /></div><div><Label>RETURN</Label><Input type="date" value={editEnd} onChange={e => setEditEnd(e.target.value)} /></div></div>
+      {/* Trip header */}
+      <div className="px-4 pb-3">
+        {editing ? (
+          <div className="mb-3">
+            <div className="mb-3"><Label>DESIGNATION</Label><input type="text" value={editTitle} onChange={e => setEditTitle(e.target.value)} className="w-full px-0 py-1.5 border-0 border-b outline-none text-sm font-bold" style={{ background: "transparent", borderColor: "var(--border-primary)", color: "var(--text-heading)", fontFamily: FONT }} /></div>
+            <div className="grid grid-cols-2 gap-3"><div><Label>DEPART</Label><Input type="date" value={editStart} onChange={e => setEditStart(e.target.value)} /></div><div><Label>RETURN</Label><Input type="date" value={editEnd} onChange={e => setEditEnd(e.target.value)} /></div></div>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between mb-1">
+              <span style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--accent-flight)", fontWeight: 700 }}>{countdown.label}</span>
+              <span className="px-2.5 py-1" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: status === "live" || status === "active" ? "var(--accent-flight-bright)" : "var(--accent-countdown)", border: `1px solid ${status === "live" || status === "active" ? "var(--accent-flight)" : "var(--accent-hotel-dim)"}`, borderRadius: 4, fontWeight: 500 }}>{countdown.text}</span>
             </div>
-          )}
+            <h1 style={{ fontFamily: FONT, fontSize: "20px", fontWeight: 600, color: "var(--text-heading)", marginBottom: 4 }}>{trip.title}</h1>
+            <p style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)", letterSpacing: "0.5px" }}>
+              {formatDateRange(trip.start_date, trip.end_date)}{trip.legs?.length ? ` \u00B7 ${trip.legs.length} LEGS` : ""}{segmentCount ? ` \u00B7 ${segmentCount} SEGMENTS` : ""}
+            </p>
+          </>
+        )}
+      </div>
 
-          <h2 className="text-xs font-bold tracking-widest mb-3" style={{ color: C.textDim, fontFamily: FONT, fontSize: "9px", letterSpacing: "2px" }}>ITINERARY · {trip.legs?.length || 0} LEGS</h2>
-          <div className="flex flex-col gap-1.5">
-            {trip.legs?.map((leg, i) => { const color = C[leg.type], isActive = i === activeLeg, isLive = leg.status === "in_air" || leg.status === "in_transit", isHotel = leg.type === "hotel"; const showDate = i === 0 || formatDate(leg.depart_time) !== formatDate(trip.legs[i - 1]?.depart_time); const isDeleting = confirmDelete === leg.id; return (
-              <div key={leg.id}>
-                {showDate && <p className="text-xs font-bold mb-1.5 mt-1" style={{ color: C.textDim, fontFamily: FONT, fontSize: "9px" }}>{formatDate(leg.depart_time)}</p>}
-                <div className={`w-full text-left border-l-2 transition-all ${editing ? "group" : ""}`} style={{ borderColor: isDeleting ? `${C.red}80` : isActive ? color : "rgba(255,255,255,0.03)", background: isDeleting ? `${C.red}08` : isActive ? `${color}06` : "transparent" }}>
+      {/* Route summary */}
+      {!editing && <div className="px-4 pb-3"><RouteSummaryBar legs={trip.legs} /></div>}
+
+      {/* Map */}
+      <div style={{ height: "260px", minHeight: "200px" }}>
+        <TripMap trip={trip} activeLegIndex={activeLeg} mode={mode} />
+      </div>
+
+      {/* Itinerary section */}
+      <div className="px-4 pt-4 pb-2">
+        <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-secondary)", marginBottom: 12, fontWeight: 700 }}>FLIGHT PLAN {"\u00B7"} {trip.legs?.length || 0} WAYPOINTS</p>
+
+        <div className="flex flex-col">
+          {trip.legs?.map((leg, i) => {
+            const isHotel = leg.type === "hotel";
+            const isLive = leg.status === "in_air" || leg.status === "in_transit";
+            const stripColor = STRIP_COLORS[leg.type] || "var(--strip-flight)";
+            const isDeleting = confirmDelete === leg.id;
+            const cardBg = isHotel ? "var(--bg-card-hotel)" : "var(--bg-card)";
+            const dur = formatDuration(leg.depart_time, leg.arrive_time);
+            const nights = leg.metadata?.nights || (leg.depart_time && leg.arrive_time && isHotel ? Math.max(1, Math.round((new Date(leg.arrive_time) - new Date(leg.depart_time)) / 86400000)) : 0);
+
+            return (
+              <div key={leg.id} className="flex">
+                {/* Timeline rail */}
+                <div className="flex flex-col items-center" style={{ width: 28 }}>
+                  <div className="flex items-center justify-center" style={{ width: isHotel ? 8 : 10, height: isHotel ? 8 : 10, borderRadius: "50%", border: `2px solid ${isHotel ? "var(--strip-hotel)" : "var(--timeline-dot-border)"}`, background: "var(--timeline-dot-bg)", flexShrink: 0 }} />
+                  {i < trip.legs.length - 1 && <div style={{ width: 1.5, flex: 1, background: "var(--timeline-rail)", minHeight: 20 }} />}
+                </div>
+
+                {/* Card */}
+                <div className="flex-1 mb-2 ml-2" style={{ borderLeft: `3px solid ${stripColor}`, borderRadius: "4px", padding: "12px", background: cardBg }}>
                   {isDeleting ? (
-                    <div className="px-3 py-3 flex items-center justify-between"><span className="text-xs font-bold" style={{ color: C.red, fontFamily: FONT }}>Remove?</span><div className="flex gap-2"><button onClick={() => setConfirmDelete(null)} className="text-xs font-bold px-2 py-1 rounded" style={{ color: C.textDim, fontFamily: FONT, fontSize: "9px" }}>KEEP</button><button onClick={() => removeLeg(leg.id)} className="text-xs font-bold px-2.5 py-1 rounded" style={{ background: C.red, color: "#fff", fontFamily: FONT, fontSize: "9px" }}>REMOVE</button></div></div>
-                  ) : (
-                    <button onClick={() => setActiveLeg(i)} className="w-full text-left"><div className="px-3 py-2.5">
-                      <div className="flex items-center gap-2 mb-1"><span className="text-xs font-bold" style={{ color, fontFamily: FONT, fontSize: "9px", letterSpacing: "1.5px" }}>{leg.type.toUpperCase()}</span><span className="text-xs truncate" style={{ color: C.textDim, fontFamily: FONT, fontSize: "10px" }}>{leg.carrier}{leg.vehicle_number ? ` · ${leg.vehicle_number}` : ""}</span>{isLive && <span className="flex items-center gap-1 ml-auto shrink-0"><span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: C.red }} /><span className="relative inline-flex rounded-full h-1.5 w-1.5" style={{ background: C.red }} /></span><span className="text-xs font-bold" style={{ color: C.red, fontFamily: FONT, fontSize: "9px" }}>LIVE</span></span>}
-                        {editing && !isLive && <div className="flex items-center gap-0.5 ml-auto opacity-0 group-hover:opacity-100 shrink-0">{i > 0 && <button onClick={e => { e.stopPropagation(); moveLeg(i, -1); }} className="p-1.5" style={{ color: C.textDim }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 15l-6-6-6 6"/></svg></button>}{i < trip.legs.length - 1 && <button onClick={e => { e.stopPropagation(); moveLeg(i, 1); }} className="p-1.5" style={{ color: C.textDim }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9l6 6 6-6"/></svg></button>}<button onClick={e => { e.stopPropagation(); setConfirmDelete(leg.id); }} className="p-1.5" style={{ color: C.textDim }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>}
+                    <div className="flex items-center justify-between">
+                      <span style={{ fontFamily: FONT, fontSize: "11px", fontWeight: 700, color: "var(--accent-flight)" }}>Remove this leg?</span>
+                      <div className="flex gap-2">
+                        <button onClick={() => setConfirmDelete(null)} style={{ fontFamily: FONT, fontSize: "9px", fontWeight: 700, color: "var(--text-secondary)", letterSpacing: "1px" }}>KEEP</button>
+                        <button onClick={() => removeLeg(leg.id)} className="px-2.5 py-1 rounded" style={{ fontFamily: FONT, fontSize: "9px", fontWeight: 700, background: "var(--accent-flight)", color: "var(--bg-primary)", letterSpacing: "1px" }}>REMOVE</button>
                       </div>
-                      {isHotel ? <div><p className="text-sm font-bold" style={{ color: C.text, fontFamily: FONT }}>{leg.carrier}</p><p className="text-xs mt-0.5" style={{ color: C.textDim, fontFamily: FONT, fontSize: "10px" }}>{leg.origin?.city} · {leg.metadata?.nights}N</p></div>
-                      : <div className="flex items-center gap-1.5 flex-wrap"><span className="text-base font-bold" style={{ color: C.text, fontFamily: FONT }}>{leg.origin?.code || leg.origin?.city}</span><span className="text-xs" style={{ color: C.textDim }}>{formatTime(leg.actual_depart || leg.depart_time)}</span><span style={{ color: C.textGhost }}>→</span><span className="text-base font-bold" style={{ color: C.text, fontFamily: FONT }}>{leg.destination?.code || leg.destination?.city}</span><span className="text-xs" style={{ color: C.textDim }}>{formatTime(leg.arrive_time)}</span><span className="text-xs ml-auto" style={{ color: C.textGhost, fontFamily: FONT, fontSize: "10px" }}>{formatDuration(leg.depart_time, leg.arrive_time)}</span></div>}
-                      {isActive && !editing && Object.keys(leg.metadata || {}).length > 0 && <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-2 pt-2" style={{ borderTop: `1px solid ${C.border}` }}>{Object.entries(leg.metadata).filter(([,v]) => v).map(([k, v]) => <span key={k} className="text-xs" style={{ fontFamily: FONT, fontSize: "9px" }}><span style={{ color: C.textDim }}>{k.replace(/_/g, " ").toUpperCase()}: </span><span style={{ color: C.textMid }}>{v}</span></span>)}</div>}
-                    </div></button>
+                    </div>
+                  ) : isHotel ? (
+                    <>
+                      <div className="flex items-center justify-between mb-1">
+                        <span style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: "var(--accent-hotel)", fontWeight: 700 }}>GROUND STOP {"\u00B7"} {nights}N</span>
+                        <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{formatDate(leg.depart_time)}{leg.arrive_time ? ` \u2013 ${formatDate(leg.arrive_time)}` : ""}</span>
+                      </div>
+                      <p style={{ fontFamily: FONT, fontSize: mode === "night" ? "16px" : "14px", fontWeight: 600, color: "var(--accent-hotel-text)", marginBottom: 2 }}>{leg.carrier}</p>
+                      <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--accent-hotel-dim)" }}>
+                        {leg.origin?.city ? leg.origin.city.toUpperCase() : ""}{nights ? ` \u00B7 ${nights} NIGHTS` : ""}
+                      </p>
+                      {editing && !isLive && (
+                        <div className="flex items-center gap-1 mt-2 pt-2" style={{ borderTop: "1px solid var(--border-hotel)" }}>
+                          {i > 0 && <button onClick={e => { e.stopPropagation(); moveLeg(i, -1); }} className="p-1" style={{ color: "var(--text-secondary)" }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 15l-6-6-6 6"/></svg></button>}
+                          {i < trip.legs.length - 1 && <button onClick={e => { e.stopPropagation(); moveLeg(i, 1); }} className="p-1" style={{ color: "var(--text-secondary)" }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9l6 6 6-6"/></svg></button>}
+                          <button onClick={e => { e.stopPropagation(); setConfirmDelete(leg.id); }} className="p-1 ml-auto" style={{ color: "var(--text-secondary)" }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: stripColor, fontWeight: 700 }}>{leg.type.toUpperCase()} {"\u00B7"} {leg.vehicle_number || leg.carrier}</span>
+                          {isLive && <span className="inline-flex items-center gap-1"><span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--accent-flight)" }} /><span className="relative inline-flex rounded-full h-1.5 w-1.5" style={{ background: "var(--accent-flight)" }} /></span><span style={{ fontFamily: FONT, fontSize: "8px", fontWeight: 700, color: "var(--accent-flight-bright)" }}>LIVE</span></span>}
+                        </div>
+                        <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{formatDate(leg.depart_time)}</span>
+                      </div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span style={{ fontFamily: FONT, fontSize: "24px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "2px" }}>{leg.origin?.code || leg.origin?.city?.slice(0, 3)?.toUpperCase() || "?"}</span>
+                        <div className="flex flex-col items-center flex-1 mx-3">
+                          <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{dur}</span>
+                          <div style={{ width: "100%", height: 0, borderTop: "1px solid var(--border-subtle)", marginTop: 4 }} />
+                        </div>
+                        <span style={{ fontFamily: FONT, fontSize: "24px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "2px" }}>{leg.destination?.code || leg.destination?.city?.slice(0, 3)?.toUpperCase() || "?"}</span>
+                      </div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{formatTime(leg.actual_depart || leg.depart_time)} LOCAL</span>
+                        <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{formatTime(leg.arrive_time)} LOCAL</span>
+                      </div>
+                      {(leg.vehicle_number || leg.carrier || Object.keys(leg.metadata || {}).length > 0) && (
+                        <div className="flex items-center justify-between pt-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+                          <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{[leg.vehicle_number, leg.carrier].filter(Boolean).join(" \u00B7 ")}</span>
+                          <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{[leg.metadata?.seat ? `SEAT ${leg.metadata.seat}` : null, leg.metadata?.terminal ? `T-${leg.metadata.terminal}` : null, leg.metadata?.gate ? `G${leg.metadata.gate}` : null].filter(Boolean).join(" \u00B7 ")}</span>
+                        </div>
+                      )}
+                      {editing && !isLive && (
+                        <div className="flex items-center gap-1 mt-2 pt-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+                          {i > 0 && <button onClick={e => { e.stopPropagation(); moveLeg(i, -1); }} className="p-1" style={{ color: "var(--text-secondary)" }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 15l-6-6-6 6"/></svg></button>}
+                          {i < trip.legs.length - 1 && <button onClick={e => { e.stopPropagation(); moveLeg(i, 1); }} className="p-1" style={{ color: "var(--text-secondary)" }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9l6 6 6-6"/></svg></button>}
+                          <button onClick={e => { e.stopPropagation(); setConfirmDelete(leg.id); }} className="p-1 ml-auto" style={{ color: "var(--text-secondary)" }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
-              </div>); })}
-          </div>
-
-          {editing && (
-            <div className="mt-3">
-              {showLegBuilder ? (
-                <div className="border rounded" style={{ background: C.surface, borderColor: `${typeCfg[bType].color}30` }}>
-                  <div className="flex border-b" style={{ borderColor: C.border }}>{Object.entries(typeCfg).map(([k, v]) => <button key={k} onClick={() => { setBType(k); resetBuilder(); }} className="flex-1 py-2 text-xs font-bold tracking-widest relative" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: bType === k ? v.color : C.textDim, background: bType === k ? `${v.color}06` : "transparent" }}>{v.label}{bType === k && <div className="absolute bottom-0 left-0 right-0 h-px" style={{ background: v.color }} />}</button>)}</div>
-                  <div className="p-3">
-                    {bType === "flight" && (<><div className="flex flex-col sm:flex-row gap-2 mb-2"><div className="flex-1"><Label>CALLSIGN</Label><Input type="text" value={bFN} onChange={e => { setBFN(e.target.value); setBAF(null); setBErr(null); }} onKeyDown={e => e.key === "Enter" && handleQuery()} placeholder="DL484" style={{ textTransform: "uppercase", letterSpacing: "1px" }} /></div><div className="flex items-end"><button onClick={handleQuery} disabled={bLoading || !bFN.trim()} className="w-full sm:w-auto px-4 py-2.5 rounded text-xs font-bold tracking-widest" style={{ background: bFN.trim() ? `${C.red}15` : C.surface, color: bFN.trim() ? C.red : C.textGhost, border: `1px solid ${bFN.trim() ? C.red + "30" : C.border}`, fontFamily: FONT, fontSize: "9px" }}>{bLoading ? <Spinner /> : "QUERY"}</button></div></div>{bAF && <div className="rounded border p-2.5 mb-2" style={{ background: `${C.green}05`, borderColor: `${C.green}20` }}><div className="flex items-center gap-2 mb-1"><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: C.green }} /><span className="relative inline-flex rounded-full h-2 w-2" style={{ background: C.green }} /></span><span className="text-xs font-bold" style={{ color: C.green, fontFamily: FONT, fontSize: "9px" }}>MATCH</span></div><div className="grid grid-cols-2 gap-x-4 gap-y-0.5">{[["CARRIER", bAF.carrier], ["ROUTE", `${bAF.origin.code} → ${bAF.destination.code}`], ["DEP", formatTime(bAF.origin.scheduled)], ["ARR", formatTime(bAF.destination.scheduled)]].map(([l, v]) => <div key={l} className="flex items-baseline gap-1.5"><span className="text-xs" style={{ color: C.textDim, fontFamily: FONT, fontSize: "8px", minWidth: 40 }}>{l}</span><span className="text-xs" style={{ color: C.textMid, fontFamily: FONT }}>{v}</span></div>)}</div></div>}{bErr && <p className="mb-2 text-xs font-bold" style={{ color: C.red, fontFamily: FONT, fontSize: "9px" }}>{bErr}</p>}</>)}
-                    {bType === "hotel" && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><div><Label>PROPERTY</Label><Input value={bHN} onChange={e => setBHN(e.target.value)} placeholder="Park Hyatt Tokyo" /></div><div><Label>CONF NO.</Label><Input value={bHC} onChange={e => setBHC(e.target.value)} placeholder="Optional" /></div><div><Label>CHECK-IN</Label><Input type="date" value={bHI} onChange={e => setBHI(e.target.value)} /></div><div><Label>CHECK-OUT</Label><Input type="date" value={bHO} onChange={e => setBHO(e.target.value)} /></div></div>}
-                    {(bType === "train" || bType === "bus") && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><div><Label>ORIGIN</Label><Input value={bO} onChange={e => setBO(e.target.value)} placeholder="Tokyo" /></div><div><Label>DEST</Label><Input value={bD} onChange={e => setBD(e.target.value)} placeholder="Kyoto" /></div><div><Label>DATE</Label><Input type="date" value={bDt} onChange={e => setBDt(e.target.value)} /></div><div><Label>TIME (OPT)</Label><Input type="time" value={bTm} onChange={e => setBTm(e.target.value)} /></div></div>}
-                    <div className="flex items-center justify-between mt-3 pt-2" style={{ borderTop: `1px solid ${C.border}` }}><button onClick={() => { setShowLegBuilder(false); resetBuilder(); }} className="text-xs font-bold tracking-widest" style={{ color: C.textDim, fontFamily: FONT, fontSize: "9px" }}>CANCEL</button><button onClick={addLeg} disabled={!canConfirm()} className="px-4 py-2 rounded text-xs font-bold tracking-widest" style={{ background: canConfirm() ? typeCfg[bType].color : C.surface, color: canConfirm() ? "#fff" : C.textGhost, fontFamily: FONT, fontSize: "9px" }}>ADD LEG</button></div>
-                  </div>
-                </div>
-              ) : <button onClick={() => setShowLegBuilder(true)} className="w-full py-3 rounded border border-dashed text-xs font-bold tracking-widest" style={{ borderColor: `${C.amber}30`, color: C.amber, fontFamily: FONT, fontSize: "9px", letterSpacing: "2px" }}>+ ADD LEG</button>}
-            </div>
-          )}
+              </div>
+            );
+          })}
         </div>
+
+        {/* Add leg builder (edit mode) */}
+        {editing && (
+          <div className="mt-3">
+            {showLegBuilder ? (
+              <div className="border rounded" style={{ background: "var(--bg-surface)", borderColor: "var(--border-primary)" }}>
+                <div className="flex border-b" style={{ borderColor: "var(--border-primary)" }}>{Object.entries(typeCfg).map(([k, v]) => <button key={k} onClick={() => { setBType(k); resetBuilder(); }} className="flex-1 py-2 text-xs font-bold tracking-widest relative" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: bType === k ? v.color : "var(--text-secondary)", background: "transparent" }}>{v.label}{bType === k && <div className="absolute bottom-0 left-0 right-0 h-px" style={{ background: v.color }} />}</button>)}</div>
+                <div className="p-3">
+                  {bType === "flight" && (<><div className="flex flex-col sm:flex-row gap-2 mb-2"><div className="flex-1"><Label>CALLSIGN</Label><Input type="text" value={bFN} onChange={e => { setBFN(e.target.value); setBAF(null); setBErr(null); }} onKeyDown={e => e.key === "Enter" && handleQuery()} placeholder="DL484" style={{ textTransform: "uppercase", letterSpacing: "1px" }} /></div><div className="flex items-end"><button onClick={handleQuery} disabled={bLoading || !bFN.trim()} className="w-full sm:w-auto px-4 py-2.5 rounded text-xs font-bold tracking-widest" style={{ background: bFN.trim() ? "var(--bg-surface)" : "var(--bg-surface)", color: bFN.trim() ? "var(--accent-flight)" : "var(--text-tertiary)", border: "1px solid var(--border-primary)", fontFamily: FONT, fontSize: "9px" }}>{bLoading ? <Spinner /> : "QUERY"}</button></div></div>{bAF && <div className="rounded border p-2.5 mb-2" style={{ background: "var(--bg-surface)", borderColor: "var(--accent-flight)" }}><div className="flex items-center gap-2 mb-1"><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--accent-flight)" }} /><span className="relative inline-flex rounded-full h-2 w-2" style={{ background: "var(--accent-flight)" }} /></span><span className="text-xs font-bold" style={{ color: "var(--accent-flight)", fontFamily: FONT, fontSize: "9px" }}>MATCH</span></div><div className="grid grid-cols-2 gap-x-4 gap-y-0.5">{[["CARRIER", bAF.carrier], ["ROUTE", `${bAF.origin.code} \u2192 ${bAF.destination.code}`], ["DEP", formatTime(bAF.origin.scheduled)], ["ARR", formatTime(bAF.destination.scheduled)]].map(([l, v]) => <div key={l} className="flex items-baseline gap-1.5"><span className="text-xs" style={{ color: "var(--text-secondary)", fontFamily: FONT, fontSize: "8px", minWidth: 40 }}>{l}</span><span className="text-xs" style={{ color: "var(--text-primary)", fontFamily: FONT }}>{v}</span></div>)}</div></div>}{bErr && <p className="mb-2 text-xs font-bold" style={{ color: "var(--accent-flight)", fontFamily: FONT, fontSize: "9px" }}>{bErr}</p>}</>)}
+                  {bType === "hotel" && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><div><Label>PROPERTY</Label><Input value={bHN} onChange={e => setBHN(e.target.value)} placeholder="Park Hyatt Tokyo" /></div><div><Label>CONF NO.</Label><Input value={bHC} onChange={e => setBHC(e.target.value)} placeholder="Optional" /></div><div><Label>CHECK-IN</Label><Input type="date" value={bHI} onChange={e => setBHI(e.target.value)} /></div><div><Label>CHECK-OUT</Label><Input type="date" value={bHO} onChange={e => setBHO(e.target.value)} /></div></div>}
+                  {(bType === "train" || bType === "bus") && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><div><Label>ORIGIN</Label><Input value={bO} onChange={e => setBO(e.target.value)} placeholder="Tokyo" /></div><div><Label>DEST</Label><Input value={bD} onChange={e => setBD(e.target.value)} placeholder="Kyoto" /></div><div><Label>DATE</Label><Input type="date" value={bDt} onChange={e => setBDt(e.target.value)} /></div><div><Label>TIME (OPT)</Label><Input type="time" value={bTm} onChange={e => setBTm(e.target.value)} /></div></div>}
+                  <div className="flex items-center justify-between mt-3 pt-2" style={{ borderTop: "1px solid var(--border-primary)" }}><button onClick={() => { setShowLegBuilder(false); resetBuilder(); }} className="text-xs font-bold tracking-widest" style={{ color: "var(--text-secondary)", fontFamily: FONT, fontSize: "9px" }}>CANCEL</button><button onClick={addLeg} disabled={!canConfirm()} className="px-4 py-2 rounded text-xs font-bold tracking-widest" style={{ background: canConfirm() ? "var(--accent-flight)" : "var(--bg-surface)", color: canConfirm() ? "var(--bg-primary)" : "var(--text-tertiary)", fontFamily: FONT, fontSize: "9px" }}>ADD LEG</button></div>
+                </div>
+              </div>
+            ) : <button onClick={() => setShowLegBuilder(true)} className="w-full py-3 rounded border border-dashed text-xs font-bold tracking-widest" style={{ borderColor: "var(--accent-hotel-dim)", color: "var(--accent-hotel)", fontFamily: FONT, fontSize: "9px", letterSpacing: "2px" }}>+ ADD LEG</button>}
+          </div>
+        )}
       </div>
+
+      {/* Stats footer */}
+      {!editing && <StatsFooter legs={trip.legs} />}
     </div>
   );
 }
@@ -571,6 +1016,51 @@ function SharedPage({ tripId }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// NAV RIGHT (avatar + theme toggle)
+// ═══════════════════════════════════════════════════════════════════
+
+function NavRight({ user, signOut }) {
+  const [open, setOpen] = useState(false);
+  const { mode, pref, setPref } = useTheme();
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const themeOptions = [
+    { key: "auto", label: "AUTO" },
+    { key: "day", label: "DAY" },
+    { key: "night", label: "NIGHT" },
+  ];
+
+  return (
+    <div className="relative" ref={ref}>
+      <button onClick={() => setOpen(o => !o)} className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.textDim }} title="Settings">{(user.user_metadata?.name || user.email || "U").charAt(0).toUpperCase()}</button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1.5 rounded-lg overflow-hidden z-50" style={{ background: "#131316", border: `1px solid ${C.border}`, minWidth: "160px" }}>
+          <div className="px-3 py-2.5" style={{ borderBottom: `1px solid ${C.border}` }}>
+            <p className="text-xs font-bold tracking-widest mb-2" style={{ color: C.textDim, fontFamily: FONT, fontSize: "8px", letterSpacing: "1.5px" }}>THEME</p>
+            <div className="flex gap-0">
+              {themeOptions.map(opt => (
+                <button key={opt.key} onClick={() => setPref(opt.key)} className="flex-1 relative py-1.5 text-xs font-bold tracking-widest" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: pref === opt.key ? C.text : C.textDim, minHeight: "44px", minWidth: "44px" }}>
+                  {opt.label}
+                  {pref === opt.key && <div className="absolute bottom-0 left-1 right-1 h-px" style={{ background: C.green }} />}
+                </button>
+              ))}
+            </div>
+          </div>
+          <button onClick={() => { signOut(); setOpen(false); }} className="w-full text-left px-3 py-2.5 text-xs font-bold tracking-widest" style={{ color: C.textDim, fontFamily: FONT, fontSize: "9px", letterSpacing: "1.5px" }}>SIGN OUT</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // APP SHELL
 // ═══════════════════════════════════════════════════════════════════
 
@@ -593,7 +1083,7 @@ function TripTrackApp() {
         <div className="fixed inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse 50% 30% at 15% 0%, rgba(232,66,51,0.03) 0%, transparent 50%)" }} />
         <div className="sticky top-0 z-40 flex items-center justify-between px-4 sm:px-6 h-[48px] sm:h-[53px]" style={{ borderBottom: `1px solid ${C.border}`, background: "rgba(12,12,14,0.92)", backdropFilter: "blur(12px)" }}>
           <button onClick={() => navigate("dashboard")} className="text-xs font-bold tracking-widest" style={{ color: C.textDim, fontFamily: FONT, fontSize: "10px", letterSpacing: "3px" }}>TRIPTRACK</button>
-          <button onClick={signOut} className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.textDim }} title="Sign out">{(user.user_metadata?.name || user.email || "U").charAt(0).toUpperCase()}</button>
+          <NavRight user={user} signOut={signOut} />
         </div>
         <div className="transition-all duration-500" style={{ opacity: loaded ? 1 : 0, transform: loaded ? "translateY(0)" : "translateY(8px)", ...(isFullWidth ? {} : { maxWidth: "42rem", margin: "0 auto", padding: "1.5rem 1rem" }) }}>
           {route.page === "dashboard" && <DashboardPage />}
@@ -611,5 +1101,5 @@ function TripTrackApp() {
 // ═══════════════════════════════════════════════════════════════════
 
 export default function App() {
-  return <AuthProvider><TripTrackApp /></AuthProvider>;
+  return <ThemeProvider><AuthProvider><TripTrackApp /></AuthProvider></ThemeProvider>;
 }
