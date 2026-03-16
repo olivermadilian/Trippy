@@ -288,8 +288,8 @@ const STATUS_CFG = { live: { label: "LIVE", color: C.red, dot: true }, upcoming:
 
 function StatusBadge({ status }) { const cfg = STATUS_CFG[status] || STATUS_CFG.upcoming; return <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-bold" style={{ background: `${cfg.color}12`, color: cfg.color, fontFamily: FONT, fontSize: "9px", letterSpacing: "1.5px" }}>{cfg.dot && <span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: cfg.color }} /><span className="relative inline-flex rounded-full h-1.5 w-1.5" style={{ background: cfg.color }} /></span>}{cfg.label}</span>; }
 function LegPill({ leg }) { const color = C[leg.type]; const label = leg.type === "hotel" ? "HTL" : `${leg.origin?.code || "?"} → ${leg.destination?.code || "?"}`; return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs" style={{ background: `${color}12`, color, fontFamily: FONT, fontSize: "9px" }}>{leg.type.toUpperCase().slice(0, 3)} <span style={{ opacity: 0.6 }}>{label}</span></span>; }
-function Label({ children }) { return <label className="block text-xs font-bold mb-1.5" style={{ color: C.textDim, fontFamily: FONT, fontSize: "9px", letterSpacing: "1.5px" }}>{children}</label>; }
-function Input(props) { return <input {...props} className={`w-full px-3 py-2.5 rounded border outline-none text-sm transition-colors ${props.className || ""}`} style={{ background: "rgba(0,0,0,0.3)", borderColor: C.border, color: C.text, fontFamily: FONT, colorScheme: "dark", ...props.style }} />; }
+function Label({ children }) { return <label className="block text-xs font-bold mb-1.5" style={{ color: "var(--text-secondary)", fontFamily: FONT, fontSize: "9px", letterSpacing: "1.5px" }}>{children}</label>; }
+function Input(props) { const { mode } = useTheme(); return <input {...props} className={`w-full px-3 py-2.5 rounded border outline-none text-sm transition-colors ${props.className || ""}`} style={{ background: "var(--bg-surface)", borderColor: "var(--border-primary)", color: "var(--text-primary)", fontFamily: FONT, colorScheme: mode === "night" ? "dark" : "light", ...props.style }} />; }
 function Spinner() { return <span className="inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />; }
 function LoadingScreen() { return <div className="flex items-center justify-center min-h-[60vh]"><Spinner /><span className="ml-3 text-xs tracking-widest" style={{ color: C.textDim, fontFamily: FONT, fontSize: "10px", letterSpacing: "2px" }}>LOADING</span></div>; }
 
@@ -1292,27 +1292,140 @@ function DetailPage({ tripId }) {
 
 function CreatePage() {
   const { navigate } = useRouter();
-  const [tripTitle, setTripTitle] = useState(""); const [tripStart, setTripStart] = useState(""); const [tripEnd, setTripEnd] = useState("");
-  const [submitted, setSubmitted] = useState(false); const [submitting, setSubmitting] = useState(false);
+  const { mode } = useTheme();
+  const [tripTitle, setTripTitle] = useState("");
+  const [tripStart, setTripStart] = useState("");
+  const [tripEnd, setTripEnd] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [newTripId, setNewTripId] = useState(null);
 
-  const handleSubmit = async () => { if (!tripTitle.trim()) return; setSubmitting(true); try { const t = await api("/trips", { method: "POST", body: JSON.stringify({ title: tripTitle, description: "", start_date: tripStart || null, end_date: tripEnd || null }) }); setNewTripId(t.id); setSubmitted(true); } catch (e) { alert(e.message); } setSubmitting(false); };
+  const handleSubmit = async () => {
+    if (!tripTitle.trim()) return;
+    setSubmitting(true);
+    try {
+      const t = await api("/trips", { method: "POST", body: JSON.stringify({ title: tripTitle, description: "", start_date: tripStart || null, end_date: tripEnd || null }) });
+      setNewTripId(t.id);
+      setSubmitted(true);
+    } catch (e) { alert(e.message); }
+    setSubmitting(false);
+  };
+
+  // Quick date helpers
+  const today = new Date();
+  const fmt = (d) => d.toISOString().split("T")[0];
+  const addDays = (d, n) => { const r = new Date(d); r.setDate(r.getDate() + n); return r; };
+  const quickDates = [
+    { label: "THIS WEEKEND", start: (() => { const d = new Date(today); d.setDate(d.getDate() + ((6 - d.getDay()) % 7 || 7)); return d; })(), days: 2 },
+    { label: "NEXT WEEK", start: (() => { const d = new Date(today); d.setDate(d.getDate() + ((8 - d.getDay()) % 7)); return d; })(), days: 5 },
+    { label: "IN 2 WEEKS", start: addDays(today, 14), days: 7 },
+    { label: "NEXT MONTH", start: (() => { const d = new Date(today); d.setMonth(d.getMonth() + 1, 1); return d; })(), days: 7 },
+  ];
 
   if (submitted) return (
     <div className="text-center py-20 px-4">
-      <div className="inline-flex items-center gap-2 mb-4"><span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: C.green }} /><span className="relative inline-flex rounded-full h-3 w-3" style={{ background: C.green }} /></span><span className="text-xs font-bold tracking-widest" style={{ color: C.green, fontFamily: FONT, fontSize: "10px", letterSpacing: "2px" }}>FILED</span></div>
-      <h2 className="text-xl font-bold mb-2" style={{ color: C.text, fontFamily: FONT }}>{tripTitle}</h2>
-      <p className="text-xs mb-6" style={{ color: C.textDim, fontFamily: FONT }}>Add legs from the trip detail page</p>
-      <div className="flex gap-3 justify-center flex-col sm:flex-row"><button onClick={() => navigate("dashboard")} className="px-4 py-2.5 rounded text-xs font-bold tracking-widest" style={{ background: C.surface, color: C.textMid, border: `1px solid ${C.border}`, fontFamily: FONT, fontSize: "10px" }}>DASHBOARD</button>{newTripId && <button onClick={() => navigate("detail", { tripId: newTripId })} className="px-4 py-2.5 rounded text-xs font-bold tracking-widest" style={{ background: `${C.red}15`, color: C.red, border: `1px solid ${C.red}30`, fontFamily: FONT, fontSize: "10px" }}>ADD LEGS</button>}</div>
+      <div className="inline-flex items-center gap-2 mb-4">
+        <span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--accent-flight)" }} /><span className="relative inline-flex rounded-full h-3 w-3" style={{ background: "var(--accent-flight)" }} /></span>
+        <span style={{ fontFamily: FONT, fontSize: "10px", letterSpacing: "2px", fontWeight: 700, color: "var(--accent-flight-bright)" }}>FILED</span>
+      </div>
+      <h2 className="text-xl font-bold mb-2" style={{ color: "var(--text-heading)", fontFamily: FONT }}>{tripTitle}</h2>
+      <p className="text-xs mb-6" style={{ color: "var(--text-secondary)", fontFamily: FONT }}>Add legs from the trip detail page</p>
+      <div className="flex gap-3 justify-center flex-col sm:flex-row">
+        <button onClick={() => navigate("dashboard")} className="px-4 py-2.5 rounded text-xs font-bold tracking-widest" style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-primary)", fontFamily: FONT, fontSize: "10px", minHeight: 44 }}>DASHBOARD</button>
+        {newTripId && <button onClick={() => navigate("detail", { tripId: newTripId })} className="px-4 py-2.5 rounded text-xs font-bold tracking-widest" style={{ background: "var(--squawk-bg)", color: "var(--squawk-text)", fontFamily: FONT, fontSize: "10px", minHeight: 44 }}>ADD LEGS</button>}
+      </div>
     </div>
   );
 
   return (
-    <div>
-      <h1 className="text-xs font-bold tracking-widest mb-8" style={{ color: C.textDim, fontFamily: FONT, fontSize: "10px", letterSpacing: "3px" }}>FILE NEW ITINERARY</h1>
-      <div className="mb-8"><Label>DESIGNATION</Label><input type="text" value={tripTitle} onChange={e => setTripTitle(e.target.value)} placeholder="NYC Weekend" className="w-full px-0 py-2 border-0 border-b outline-none text-xl font-bold" style={{ background: "transparent", borderColor: tripTitle ? C.borderHover : C.border, color: C.text, fontFamily: FONT }} /><div className="grid grid-cols-2 gap-4 mt-4"><div><Label>DEPART</Label><Input type="date" value={tripStart} onChange={e => setTripStart(e.target.value)} /></div><div><Label>RETURN</Label><Input type="date" value={tripEnd} onChange={e => setTripEnd(e.target.value)} /></div></div></div>
-      <button onClick={handleSubmit} disabled={!tripTitle.trim() || submitting} className="w-full py-3.5 rounded text-xs font-bold tracking-widest" style={{ background: tripTitle.trim() ? C.red : C.surface, color: tripTitle.trim() ? "#fff" : C.textGhost, fontFamily: FONT, fontSize: "11px", letterSpacing: "2px" }}>{submitting ? <span className="flex items-center justify-center gap-2"><Spinner />FILING</span> : "FILE ITINERARY"}</button>
-      <p className="text-center text-xs mt-3" style={{ color: C.textGhost, fontFamily: FONT, fontSize: "9px" }}>Add legs after filing from the trip detail page.</p>
+    <div className="px-4 sm:px-6 py-6" style={{ maxWidth: "32rem", margin: "0 auto" }}>
+      {/* Back link */}
+      <button onClick={() => navigate("dashboard")} className="flex items-center gap-1 mb-6" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: "var(--text-tertiary)", fontWeight: 700, minHeight: 44 }}>
+        {"\u2190"} DASHBOARD
+      </button>
+
+      {/* Header */}
+      <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--accent-flight)", fontWeight: 700, marginBottom: 6 }}>FILE NEW ITINERARY</p>
+      <p style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-tertiary)", marginBottom: 24 }}>Name your trip and set travel dates. Add flights, hotels, and legs after filing.</p>
+
+      {/* Trip name */}
+      <div className="mb-6">
+        <Label>DESIGNATION</Label>
+        <input
+          type="text"
+          value={tripTitle}
+          onChange={e => setTripTitle(e.target.value)}
+          placeholder="Spring Break, NYC Weekend, Euro Trip..."
+          autoFocus
+          className="w-full px-0 py-3 border-0 border-b-2 outline-none text-xl font-bold"
+          style={{ background: "transparent", borderColor: tripTitle ? "var(--accent-flight)" : "var(--border-primary)", color: "var(--text-heading)", fontFamily: FONT, transition: "border-color 0.2s" }}
+        />
+      </div>
+
+      {/* Quick date buttons */}
+      <div className="mb-4">
+        <Label>QUICK SET</Label>
+        <div className="flex gap-2 flex-wrap">
+          {quickDates.map(qd => {
+            const isActive = tripStart === fmt(qd.start);
+            return (
+              <button
+                key={qd.label}
+                onClick={() => { setTripStart(fmt(qd.start)); setTripEnd(fmt(addDays(qd.start, qd.days))); }}
+                style={{
+                  fontFamily: FONT, fontSize: "8px", letterSpacing: "1px", fontWeight: 700,
+                  padding: "8px 12px", borderRadius: 6, minHeight: 36,
+                  background: isActive ? "var(--squawk-bg)" : "var(--bg-surface)",
+                  color: isActive ? "var(--squawk-text)" : "var(--text-secondary)",
+                  border: `1px solid ${isActive ? "var(--accent-flight)" : "var(--border-primary)"}`,
+                  transition: "all 0.15s",
+                }}
+              >
+                {qd.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Date inputs */}
+      <div className="grid grid-cols-2 gap-4 mb-8">
+        <div>
+          <Label>DEPART</Label>
+          <Input type="date" value={tripStart} onChange={e => setTripStart(e.target.value)} style={{ minHeight: 48, fontSize: "14px", padding: "10px 12px" }} />
+        </div>
+        <div>
+          <Label>RETURN</Label>
+          <Input type="date" value={tripEnd} onChange={e => setTripEnd(e.target.value)} style={{ minHeight: 48, fontSize: "14px", padding: "10px 12px" }} />
+          {tripStart && tripEnd && new Date(tripEnd) > new Date(tripStart) && (
+            <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)", marginTop: 4 }}>
+              {Math.round((new Date(tripEnd) - new Date(tripStart)) / 86400000)} days
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Submit */}
+      <button
+        onClick={handleSubmit}
+        disabled={!tripTitle.trim() || submitting}
+        className="w-full rounded text-xs font-bold tracking-widest"
+        style={{
+          height: 52,
+          background: tripTitle.trim() ? "var(--squawk-bg)" : "var(--bg-surface)",
+          color: tripTitle.trim() ? "var(--squawk-text)" : "var(--text-tertiary)",
+          fontFamily: FONT, fontSize: "11px", letterSpacing: "2px",
+          border: tripTitle.trim() ? "none" : "1px solid var(--border-primary)",
+          transition: "all 0.2s",
+        }}
+      >
+        {submitting ? <span className="flex items-center justify-center gap-2"><Spinner />FILING</span> : "FILE ITINERARY"}
+      </button>
+
+      {/* Helper text */}
+      <p className="text-center mt-3" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>
+        Dates are optional {"\u2014"} you can always set them later.
+      </p>
     </div>
   );
 }
