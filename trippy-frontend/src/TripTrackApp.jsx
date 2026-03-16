@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, createContext, useContext } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from "react";
 import * as d3 from "d3";
 import { supabase } from "./supabase";
 import * as topojson from "topojson-client";
@@ -1277,44 +1277,17 @@ function PlaceAutocomplete({ value, onChange, onSelect, placeholder, types }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MINI MAP (static Google Map for location previews)
+// MINI MAP (interactive Google Map embed for location previews)
 // ═══════════════════════════════════════════════════════════════════
 
-function MiniMap({ lat, lng, zoom = 15, height = 120, label }) {
-  const [src, setSrc] = useState(null);
-  const [err, setErr] = useState(false);
-
-  useEffect(() => {
-    if (lat == null || lng == null) { setSrc(null); return; }
-    // Build authenticated static map URL
-    const fetchMap = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const token = session?.access_token;
-        const params = new URLSearchParams({ lat, lng, zoom, size: "400x200", maptype: "roadmap" });
-        const res = await fetch(`${API}/places/staticmap?${params}`, { headers: { Authorization: `Bearer ${token}` } });
-        if (!res.ok) throw new Error();
-        const blob = await res.blob();
-        setSrc(URL.createObjectURL(blob));
-        setErr(false);
-      } catch { setErr(true); }
-    };
-    fetchMap();
-    return () => { if (src) URL.revokeObjectURL(src); };
-  }, [lat, lng, zoom]);
-
+function MiniMap({ lat, lng, zoom = 15, height = 140, label }) {
   if (!lat || !lng) return null;
-  if (err) return null;
-
+  const src = `https://maps.google.com/maps?q=${lat},${lng}&z=${zoom}&output=embed`;
   return (
     <div style={{ borderRadius: 6, overflow: "hidden", border: "1px solid var(--border-primary)", height, position: "relative", background: "var(--bg-surface)" }}>
-      {src ? (
-        <img src={src} alt="Location" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-      ) : (
-        <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}><Spinner /></div>
-      )}
+      <iframe src={src} style={{ width: "100%", height: "100%", border: "none" }} loading="lazy" referrerPolicy="no-referrer-when-downgrade" title="Location map" />
       {label && (
-        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: "6px 8px", background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)" }}>
+        <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, padding: "6px 8px", background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)", pointerEvents: "none" }}>
           <p style={{ fontFamily: FONT, fontSize: "8px", color: "#fff", letterSpacing: "1px" }}>{label}</p>
         </div>
       )}
@@ -1323,54 +1296,45 @@ function MiniMap({ lat, lng, zoom = 15, height = 120, label }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// SATELLITE MAP (Google Maps trip route view)
+// SATELLITE MAP (interactive Google Maps trip route)
 // ═══════════════════════════════════════════════════════════════════
 
 function SatelliteMap({ trip, height = 280 }) {
-  const [src, setSrc] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const containerRef = useRef(null);
-
-  useEffect(() => {
-    if (!trip?.legs?.length) { setLoading(false); return; }
-
-    const waypoints = [];
+  const embedUrl = useMemo(() => {
+    if (!trip?.legs?.length) return null;
+    // Collect unique waypoint coordinates
+    const points = [];
     trip.legs.forEach(leg => {
-      if (leg.origin?.lat != null && leg.origin?.lat !== 0) waypoints.push(`${leg.origin.lat},${leg.origin.lng}`);
-      if (leg.destination?.lat != null && leg.destination?.lat !== 0) waypoints.push(`${leg.destination.lat},${leg.destination.lng}`);
+      if (leg.origin?.lat != null && leg.origin?.lat !== 0) {
+        const key = `${leg.origin.lat.toFixed(4)},${leg.origin.lng.toFixed(4)}`;
+        if (!points.find(p => p.key === key)) points.push({ key, name: leg.origin.code || leg.origin.city || `${leg.origin.lat},${leg.origin.lng}` });
+      }
+      if (leg.destination?.lat != null && leg.destination?.lat !== 0) {
+        const key = `${leg.destination.lat.toFixed(4)},${leg.destination.lng.toFixed(4)}`;
+        if (!points.find(p => p.key === key)) points.push({ key, name: leg.destination.code || leg.destination.city || `${leg.destination.lat},${leg.destination.lng}` });
+      }
     });
-    // Deduplicate
-    const unique = [...new Set(waypoints)];
-    if (unique.length === 0) { setLoading(false); return; }
+    if (points.length === 0) return null;
+    if (points.length === 1) return `https://maps.google.com/maps?q=${points[0].key}&z=10&output=embed`;
+    // Build directions URL: origin / waypoints / destination
+    const origin = encodeURIComponent(points[0].key);
+    const dest = encodeURIComponent(points[points.length - 1].key);
+    const mid = points.slice(1, -1).map(p => encodeURIComponent(p.key)).join("/");
+    const dirUrl = mid
+      ? `https://www.google.com/maps/dir/${origin}/${mid}/${dest}/@${points[0].key},5z/data=!4m2!4m1!3e4`
+      : `https://www.google.com/maps/dir/${origin}/${dest}/@${points[0].key},5z/data=!4m2!4m1!3e4`;
+    return `https://maps.google.com/maps?q=&output=embed&saddr=${points[0].key}&daddr=${points[points.length - 1].key}${mid ? "&waypoints=" + points.slice(1, -1).map(p => p.key).join("|") : ""}`;
+  }, [trip?.id, trip?.legs?.length]);
 
-    const fetchMap = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const token = session?.access_token;
-        const w = containerRef.current?.offsetWidth || 600;
-        const params = new URLSearchParams({ waypoints: unique.join("|"), size: `${Math.min(w, 640)}x${height}`, maptype: "terrain" });
-        const res = await fetch(`${API}/places/tripmap?${params}`, { headers: { Authorization: `Bearer ${token}` } });
-        if (!res.ok) throw new Error();
-        const blob = await res.blob();
-        setSrc(URL.createObjectURL(blob));
-      } catch { /* silent fail, user can stay on radar */ }
-      setLoading(false);
-    };
-    fetchMap();
-    return () => { if (src) URL.revokeObjectURL(src); };
-  }, [trip?.id]);
+  if (!embedUrl) return (
+    <div style={{ width: "100%", height, display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg-surface)" }}>
+      <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>No coordinates available</p>
+    </div>
+  );
 
   return (
-    <div ref={containerRef} style={{ width: "100%", height, position: "relative", background: "var(--bg-surface)", borderRadius: 0, overflow: "hidden" }}>
-      {loading ? (
-        <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}><Spinner /></div>
-      ) : src ? (
-        <img src={src} alt="Trip route" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-      ) : (
-        <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>Map unavailable</p>
-        </div>
-      )}
+    <div style={{ width: "100%", height, position: "relative", background: "var(--bg-surface)", overflow: "hidden" }}>
+      <iframe src={embedUrl} style={{ width: "100%", height: "100%", border: "none" }} loading="lazy" referrerPolicy="no-referrer-when-downgrade" title="Trip route map" />
     </div>
   );
 }
@@ -1602,10 +1566,10 @@ function DetailPage({ tripId }) {
                   {bType === "flight" && (<><div className="flex flex-col sm:flex-row gap-2 mb-2"><div className="flex-1"><Label>CALLSIGN</Label><Input type="text" value={bFN} onChange={e => { setBFN(e.target.value); setBAF(null); setBErr(null); }} onKeyDown={e => e.key === "Enter" && handleQuery()} placeholder="DL484" style={{ textTransform: "uppercase", letterSpacing: "1px" }} /></div><div className="flex items-end"><button onClick={handleQuery} disabled={bLoading || !bFN.trim()} className="w-full sm:w-auto px-4 py-2.5 rounded text-xs font-bold tracking-widest" style={{ background: bFN.trim() ? "var(--bg-surface)" : "var(--bg-surface)", color: bFN.trim() ? "var(--accent-flight)" : "var(--text-tertiary)", border: "1px solid var(--border-primary)", fontFamily: FONT, fontSize: "9px" }}>{bLoading ? <Spinner /> : "QUERY"}</button></div></div>{bAF && <div className="rounded border p-2.5 mb-2" style={{ background: "var(--bg-surface)", borderColor: "var(--accent-flight)" }}><div className="flex items-center gap-2 mb-1"><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--accent-flight)" }} /><span className="relative inline-flex rounded-full h-2 w-2" style={{ background: "var(--accent-flight)" }} /></span><span className="text-xs font-bold" style={{ color: "var(--accent-flight)", fontFamily: FONT, fontSize: "9px" }}>MATCH</span></div><div className="grid grid-cols-2 gap-x-4 gap-y-0.5">{[["CARRIER", bAF.carrier], ["ROUTE", `${bAF.origin.code} \u2192 ${bAF.destination.code}`], ["DEP", formatTime(bAF.origin.scheduled)], ["ARR", formatTime(bAF.destination.scheduled)]].map(([l, v]) => <div key={l} className="flex items-baseline gap-1.5"><span className="text-xs" style={{ color: "var(--text-secondary)", fontFamily: FONT, fontSize: "8px", minWidth: 40 }}>{l}</span><span className="text-xs" style={{ color: "var(--text-primary)", fontFamily: FONT }}>{v}</span></div>)}</div></div>}{bErr && <p className="mb-2 text-xs font-bold" style={{ color: "var(--accent-flight)", fontFamily: FONT, fontSize: "9px" }}>{bErr}</p>}</>)}
                   {bType === "hotel" && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><div className="sm:col-span-2"><Label>PROPERTY</Label><PlaceAutocomplete value={bHN} onChange={setBHN} onSelect={(p) => setBHPlace(p)} placeholder="Park Hyatt Tokyo" types="lodging" />{bHPlace && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{bHPlace.address}</p>}{bHPlace?.lat && <div className="mt-2"><MiniMap lat={bHPlace.lat} lng={bHPlace.lng} zoom={15} height={100} label={bHPlace.name || bHN} /></div>}</div><div><Label>CONF NO.</Label><Input value={bHC} onChange={e => setBHC(e.target.value)} placeholder="Optional" /></div><div style={{}}></div><div><Label>CHECK-IN</Label><Input type="date" value={bHI} onChange={e => setBHI(e.target.value)} /></div><div><Label>CHECK-OUT</Label><Input type="date" value={bHO} onChange={e => setBHO(e.target.value)} /></div></div>}
                   {(bType === "train" || bType === "bus") && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><div><Label>ORIGIN</Label><PlaceAutocomplete value={bO} onChange={setBO} onSelect={(p) => setBOPlace(p)} placeholder="Penn Station, NYC" types="transit_station|train_station|locality" />{bOPlace && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{bOPlace.address}</p>}</div><div><Label>DEST</Label><PlaceAutocomplete value={bD} onChange={setBD} onSelect={(p) => setBDPlace(p)} placeholder="Union Station, DC" types="transit_station|train_station|locality" />{bDPlace && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{bDPlace.address}</p>}</div><div><Label>DATE</Label><Input type="date" value={bDt} onChange={e => setBDt(e.target.value)} /></div><div><Label>TIME (OPT)</Label><Input type="time" value={bTm} onChange={e => setBTm(e.target.value)} /></div></div>}
-                  <div className="flex items-center justify-between mt-3 pt-2" style={{ borderTop: "1px solid var(--border-primary)" }}><button onClick={() => { setShowLegBuilder(false); resetBuilder(); }} className="text-xs font-bold tracking-widest" style={{ color: "var(--text-secondary)", fontFamily: FONT, fontSize: "9px" }}>CANCEL</button><button onClick={addLeg} disabled={!canConfirm()} className="px-4 py-2 rounded text-xs font-bold tracking-widest" style={{ background: canConfirm() ? "var(--accent-flight)" : "var(--bg-surface)", color: canConfirm() ? "var(--bg-primary)" : "var(--text-tertiary)", fontFamily: FONT, fontSize: "9px" }}>ADD LEG</button></div>
+                  <div className="flex items-center justify-between mt-3 pt-3 pb-1" style={{ borderTop: "1px solid var(--border-primary)", position: "sticky", bottom: 0, background: "var(--bg-surface)", zIndex: 2 }}><button onClick={() => { setShowLegBuilder(false); resetBuilder(); }} className="px-4 py-3 rounded text-xs font-bold tracking-widest" style={{ color: "var(--text-secondary)", fontFamily: FONT, fontSize: "10px" }}>CANCEL</button><button onClick={addLeg} disabled={!canConfirm()} className="px-6 py-3 rounded text-xs font-bold tracking-widest" style={{ background: canConfirm() ? "var(--accent-flight)" : "var(--bg-surface)", color: canConfirm() ? "var(--bg-primary)" : "var(--text-tertiary)", fontFamily: FONT, fontSize: "10px" }}>ADD LEG</button></div>
                 </div>
               </div>
-            ) : <button onClick={() => setShowLegBuilder(true)} className="w-full py-3 rounded border border-dashed text-xs font-bold tracking-widest" style={{ borderColor: "var(--accent-hotel-dim)", color: "var(--accent-hotel)", fontFamily: FONT, fontSize: "9px", letterSpacing: "2px" }}>+ ADD LEG</button>}
+            ) : <button onClick={() => { resetBuilder(); const sd = trip?.start_date || ""; const ed = trip?.end_date || ""; setBDt(sd); setBHI(sd); setBHO(ed); setShowLegBuilder(true); }} className="w-full py-3 rounded border border-dashed text-xs font-bold tracking-widest" style={{ borderColor: "var(--accent-hotel-dim)", color: "var(--accent-hotel)", fontFamily: FONT, fontSize: "9px", letterSpacing: "2px" }}>+ ADD LEG</button>}
           </div>
         )}
       </div>
