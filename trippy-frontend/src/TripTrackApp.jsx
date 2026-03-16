@@ -1068,6 +1068,79 @@ function StatsFooter({ legs }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// PLACE AUTOCOMPLETE
+// ═══════════════════════════════════════════════════════════════════
+
+function PlaceAutocomplete({ value, onChange, onSelect, placeholder, types }) {
+  const { mode } = useTheme();
+  const [suggestions, setSuggestions] = useState([]);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const timerRef = useRef(null);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    const handler = (e) => { if (containerRef.current && !containerRef.current.contains(e.target)) setShowDropdown(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const doSearch = async (query) => {
+    if (!query || query.length < 2) { setSuggestions([]); return; }
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ query });
+      if (types) params.set("types", types);
+      const data = await api(`/places/autocomplete?${params}`);
+      setSuggestions(data.predictions || []);
+      setShowDropdown(true);
+    } catch { setSuggestions([]); }
+    setLoading(false);
+  };
+
+  const handleChange = (e) => {
+    const v = e.target.value;
+    onChange(v);
+    clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => doSearch(v), 300);
+  };
+
+  const handleSelect = async (pred) => {
+    setShowDropdown(false);
+    onChange(pred.mainText || pred.description);
+    try {
+      const details = await api(`/places/details?placeId=${pred.placeId}`);
+      onSelect(details);
+    } catch { /* use text only */ }
+  };
+
+  return (
+    <div ref={containerRef} className="relative">
+      <input
+        type="text"
+        value={value}
+        onChange={handleChange}
+        onFocus={() => { if (suggestions.length > 0) setShowDropdown(true); }}
+        placeholder={placeholder}
+        className="w-full px-3 py-2.5 rounded border outline-none text-sm transition-colors"
+        style={{ background: "var(--bg-surface)", borderColor: "var(--border-primary)", color: "var(--text-primary)", fontFamily: FONT, colorScheme: mode === "night" ? "dark" : "light" }}
+      />
+      {loading && <span className="absolute right-2 top-2.5"><Spinner /></span>}
+      {showDropdown && suggestions.length > 0 && (
+        <div className="absolute z-50 left-0 right-0 mt-1 rounded border overflow-hidden shadow-lg" style={{ background: "var(--bg-surface)", borderColor: "var(--border-primary)", maxHeight: 220, overflowY: "auto" }}>
+          {suggestions.map((s, i) => (
+            <button key={i} onClick={() => handleSelect(s)} className="w-full text-left px-3 py-2.5 flex flex-col hover:opacity-80" style={{ borderBottom: i < suggestions.length - 1 ? "1px solid var(--border-primary)" : "none", background: "transparent" }}>
+              <span style={{ fontFamily: FONT, fontSize: "12px", color: "var(--text-primary)", fontWeight: 600 }}>{s.mainText}</span>
+              <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-tertiary)" }}>{s.secondaryText}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // DETAIL PAGE (with edit mode)
 // ═══════════════════════════════════════════════════════════════════
 
@@ -1088,8 +1161,10 @@ function DetailPage({ tripId }) {
   const [bType, setBType] = useState("flight");
   const [bFN, setBFN] = useState(""); const [bLoading, setBLoading] = useState(false); const [bAF, setBAF] = useState(null); const [bErr, setBErr] = useState(null);
   const [bHN, setBHN] = useState(""); const [bHC, setBHC] = useState(""); const [bHI, setBHI] = useState(""); const [bHO, setBHO] = useState("");
+  const [bHPlace, setBHPlace] = useState(null); // { lat, lng, city, address }
   const [bO, setBO] = useState(""); const [bD, setBD] = useState(""); const [bDt, setBDt] = useState(""); const [bTm, setBTm] = useState("");
-  const resetBuilder = () => { setBFN(""); setBLoading(false); setBAF(null); setBErr(null); setBHN(""); setBHC(""); setBHI(""); setBHO(""); setBO(""); setBD(""); setBDt(""); setBTm(""); };
+  const [bOPlace, setBOPlace] = useState(null); const [bDPlace, setBDPlace] = useState(null);
+  const resetBuilder = () => { setBFN(""); setBLoading(false); setBAF(null); setBErr(null); setBHN(""); setBHC(""); setBHI(""); setBHO(""); setBHPlace(null); setBO(""); setBD(""); setBDt(""); setBTm(""); setBOPlace(null); setBDPlace(null); };
   const typeCfg = { flight: { label: "FLIGHT", color: "var(--strip-flight)" }, hotel: { label: "GROUND STOP", color: "var(--strip-hotel)" }, train: { label: "TRAIN", color: "#d4628a" }, bus: { label: "BUS", color: "#7c6bb4" } };
 
   const fetchTrip = async () => { setLoading(true); try { const t = await api(`/trips/${tripId}`); setTrip(mapTrip(t)); } catch (e) { setTrip(null); } setLoading(false); };
@@ -1107,8 +1182,8 @@ function DetailPage({ tripId }) {
   const addLeg = async () => {
     let newLeg;
     if (bType === "flight" && bAF) { newLeg = { type: "flight", origin: { code: bAF.origin.code, city: bAF.origin.airport, lat: 0, lng: 0 }, destination: { code: bAF.destination.code, city: bAF.destination.airport, lat: 0, lng: 0 }, depart_time: bAF.origin.scheduled, arrive_time: bAF.destination.scheduled, carrier: bAF.carrier, vehicle_number: bAF.callsign, metadata: { terminal: bAF.origin.terminal, gate: bAF.origin.gate } }; }
-    else if (bType === "hotel") { const nights = bHO ? Math.max(1, Math.round((new Date(bHO) - new Date(bHI)) / 86400000)) : 1; newLeg = { type: "hotel", origin: { code: null, city: bHN, lat: 0, lng: 0 }, destination: { code: null, city: bHN, lat: 0, lng: 0 }, depart_time: `${bHI}T15:00:00Z`, arrive_time: bHO ? `${bHO}T11:00:00Z` : `${bHI}T11:00:00Z`, carrier: bHN, vehicle_number: null, metadata: { nights, confirmation: bHC } }; }
-    else { newLeg = { type: bType, origin: { code: bO.slice(0, 3).toUpperCase(), city: bO, lat: 0, lng: 0 }, destination: { code: bD.slice(0, 3).toUpperCase(), city: bD, lat: 0, lng: 0 }, depart_time: `${bDt}T${bTm || "08:00"}:00Z`, arrive_time: `${bDt}T12:00:00Z`, carrier: bType === "train" ? "Train" : "Bus", vehicle_number: null, metadata: {} }; }
+    else if (bType === "hotel") { const nights = bHO ? Math.max(1, Math.round((new Date(bHO) - new Date(bHI)) / 86400000)) : 1; const hLat = bHPlace?.lat || 0; const hLng = bHPlace?.lng || 0; const hCity = bHPlace?.city || bHN; newLeg = { type: "hotel", origin: { code: null, city: hCity, lat: hLat, lng: hLng }, destination: { code: null, city: hCity, lat: hLat, lng: hLng }, depart_time: `${bHI}T15:00:00Z`, arrive_time: bHO ? `${bHO}T11:00:00Z` : `${bHI}T11:00:00Z`, carrier: bHN, vehicle_number: null, metadata: { nights, confirmation: bHC, address: bHPlace?.address || null } }; }
+    else { const oLat = bOPlace?.lat || 0; const oLng = bOPlace?.lng || 0; const dLat = bDPlace?.lat || 0; const dLng = bDPlace?.lng || 0; const oCity = bOPlace?.city || bO; const dCity = bDPlace?.city || bD; newLeg = { type: bType, origin: { code: bO.slice(0, 3).toUpperCase(), city: oCity, lat: oLat, lng: oLng }, destination: { code: bD.slice(0, 3).toUpperCase(), city: dCity, lat: dLat, lng: dLng }, depart_time: `${bDt}T${bTm || "08:00"}:00Z`, arrive_time: `${bDt}T12:00:00Z`, carrier: bType === "train" ? "Train" : "Bus", vehicle_number: null, metadata: {} }; }
     try { const created = await api(`/trips/${trip.id}/legs`, { method: "POST", body: JSON.stringify(legToApi(newLeg)) }); const mapped = created.origin ? created : mapLeg(created); setTrip(prev => ({ ...prev, legs: [...prev.legs, mapped] })); resetBuilder(); setShowLegBuilder(false); setActiveLeg(trip.legs.length); } catch (e) { alert(e.message); }
   };
 
@@ -1270,8 +1345,8 @@ function DetailPage({ tripId }) {
                 <div className="flex border-b" style={{ borderColor: "var(--border-primary)" }}>{Object.entries(typeCfg).map(([k, v]) => <button key={k} onClick={() => { setBType(k); resetBuilder(); }} className="flex-1 py-2 text-xs font-bold tracking-widest relative" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: bType === k ? v.color : "var(--text-secondary)", background: "transparent" }}>{v.label}{bType === k && <div className="absolute bottom-0 left-0 right-0 h-px" style={{ background: v.color }} />}</button>)}</div>
                 <div className="p-3">
                   {bType === "flight" && (<><div className="flex flex-col sm:flex-row gap-2 mb-2"><div className="flex-1"><Label>CALLSIGN</Label><Input type="text" value={bFN} onChange={e => { setBFN(e.target.value); setBAF(null); setBErr(null); }} onKeyDown={e => e.key === "Enter" && handleQuery()} placeholder="DL484" style={{ textTransform: "uppercase", letterSpacing: "1px" }} /></div><div className="flex items-end"><button onClick={handleQuery} disabled={bLoading || !bFN.trim()} className="w-full sm:w-auto px-4 py-2.5 rounded text-xs font-bold tracking-widest" style={{ background: bFN.trim() ? "var(--bg-surface)" : "var(--bg-surface)", color: bFN.trim() ? "var(--accent-flight)" : "var(--text-tertiary)", border: "1px solid var(--border-primary)", fontFamily: FONT, fontSize: "9px" }}>{bLoading ? <Spinner /> : "QUERY"}</button></div></div>{bAF && <div className="rounded border p-2.5 mb-2" style={{ background: "var(--bg-surface)", borderColor: "var(--accent-flight)" }}><div className="flex items-center gap-2 mb-1"><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--accent-flight)" }} /><span className="relative inline-flex rounded-full h-2 w-2" style={{ background: "var(--accent-flight)" }} /></span><span className="text-xs font-bold" style={{ color: "var(--accent-flight)", fontFamily: FONT, fontSize: "9px" }}>MATCH</span></div><div className="grid grid-cols-2 gap-x-4 gap-y-0.5">{[["CARRIER", bAF.carrier], ["ROUTE", `${bAF.origin.code} \u2192 ${bAF.destination.code}`], ["DEP", formatTime(bAF.origin.scheduled)], ["ARR", formatTime(bAF.destination.scheduled)]].map(([l, v]) => <div key={l} className="flex items-baseline gap-1.5"><span className="text-xs" style={{ color: "var(--text-secondary)", fontFamily: FONT, fontSize: "8px", minWidth: 40 }}>{l}</span><span className="text-xs" style={{ color: "var(--text-primary)", fontFamily: FONT }}>{v}</span></div>)}</div></div>}{bErr && <p className="mb-2 text-xs font-bold" style={{ color: "var(--accent-flight)", fontFamily: FONT, fontSize: "9px" }}>{bErr}</p>}</>)}
-                  {bType === "hotel" && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><div><Label>PROPERTY</Label><Input value={bHN} onChange={e => setBHN(e.target.value)} placeholder="Park Hyatt Tokyo" /></div><div><Label>CONF NO.</Label><Input value={bHC} onChange={e => setBHC(e.target.value)} placeholder="Optional" /></div><div><Label>CHECK-IN</Label><Input type="date" value={bHI} onChange={e => setBHI(e.target.value)} /></div><div><Label>CHECK-OUT</Label><Input type="date" value={bHO} onChange={e => setBHO(e.target.value)} /></div></div>}
-                  {(bType === "train" || bType === "bus") && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><div><Label>ORIGIN</Label><Input value={bO} onChange={e => setBO(e.target.value)} placeholder="Tokyo" /></div><div><Label>DEST</Label><Input value={bD} onChange={e => setBD(e.target.value)} placeholder="Kyoto" /></div><div><Label>DATE</Label><Input type="date" value={bDt} onChange={e => setBDt(e.target.value)} /></div><div><Label>TIME (OPT)</Label><Input type="time" value={bTm} onChange={e => setBTm(e.target.value)} /></div></div>}
+                  {bType === "hotel" && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><div className="sm:col-span-2"><Label>PROPERTY</Label><PlaceAutocomplete value={bHN} onChange={setBHN} onSelect={(p) => setBHPlace(p)} placeholder="Park Hyatt Tokyo" types="lodging" />{bHPlace && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{bHPlace.address}</p>}</div><div><Label>CONF NO.</Label><Input value={bHC} onChange={e => setBHC(e.target.value)} placeholder="Optional" /></div><div style={{}}></div><div><Label>CHECK-IN</Label><Input type="date" value={bHI} onChange={e => setBHI(e.target.value)} /></div><div><Label>CHECK-OUT</Label><Input type="date" value={bHO} onChange={e => setBHO(e.target.value)} /></div></div>}
+                  {(bType === "train" || bType === "bus") && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><div><Label>ORIGIN</Label><PlaceAutocomplete value={bO} onChange={setBO} onSelect={(p) => setBOPlace(p)} placeholder="Penn Station, NYC" types="transit_station|train_station|locality" />{bOPlace && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{bOPlace.address}</p>}</div><div><Label>DEST</Label><PlaceAutocomplete value={bD} onChange={setBD} onSelect={(p) => setBDPlace(p)} placeholder="Union Station, DC" types="transit_station|train_station|locality" />{bDPlace && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{bDPlace.address}</p>}</div><div><Label>DATE</Label><Input type="date" value={bDt} onChange={e => setBDt(e.target.value)} /></div><div><Label>TIME (OPT)</Label><Input type="time" value={bTm} onChange={e => setBTm(e.target.value)} /></div></div>}
                   <div className="flex items-center justify-between mt-3 pt-2" style={{ borderTop: "1px solid var(--border-primary)" }}><button onClick={() => { setShowLegBuilder(false); resetBuilder(); }} className="text-xs font-bold tracking-widest" style={{ color: "var(--text-secondary)", fontFamily: FONT, fontSize: "9px" }}>CANCEL</button><button onClick={addLeg} disabled={!canConfirm()} className="px-4 py-2 rounded text-xs font-bold tracking-widest" style={{ background: canConfirm() ? "var(--accent-flight)" : "var(--bg-surface)", color: canConfirm() ? "var(--bg-primary)" : "var(--text-tertiary)", fontFamily: FONT, fontSize: "9px" }}>ADD LEG</button></div>
                 </div>
               </div>

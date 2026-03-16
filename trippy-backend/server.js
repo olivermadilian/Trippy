@@ -10,6 +10,7 @@ const legRoutes = require('./src/routes/legs.routes');
 const squawkRoutes = require('./src/routes/squawk.routes');
 const flightRoutes = require('./src/routes/flights.routes');
 const referenceRoutes = require('./src/routes/reference.routes');
+const placesRoutes = require('./src/routes/places.routes');
 
 const app = express();
 
@@ -29,6 +30,7 @@ app.use('/api/trips', legRoutes);  // Legs are nested: /api/trips/:tripId/legs
 app.use('/api/squawk', squawkRoutes);
 app.use('/api/flights', flightRoutes);
 app.use('/api/reference', referenceRoutes);
+app.use('/api/places', placesRoutes);
 
 // Error handling
 app.use(errorHandler);
