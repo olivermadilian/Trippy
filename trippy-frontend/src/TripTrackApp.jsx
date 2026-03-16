@@ -407,11 +407,201 @@ function SquawkEntry({ onClaim }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// DASHBOARD
+// DASHBOARD — Global Radar Map
+// ═══════════════════════════════════════════════════════════════════
+
+function DashboardMap({ trips, filter, heroTripId }) {
+  const svgRef = useRef(null), containerRef = useRef(null);
+  const { mode } = useTheme();
+
+  const draw = useCallback(() => {
+    const el = containerRef.current, svg = d3.select(svgRef.current);
+    if (!el) return;
+    const w = el.clientWidth, h = el.clientHeight;
+    svg.attr("width", w).attr("height", h).selectAll("*").remove();
+    const isDay = mode === "day";
+
+    const defs = svg.append("defs");
+    const glow = defs.append("filter").attr("id", "dash-glow").attr("x", "-50%").attr("y", "-50%").attr("width", "200%").attr("height", "200%");
+    glow.append("feGaussianBlur").attr("stdDeviation", "4").attr("result", "b");
+    const gm = glow.append("feMerge"); gm.append("feMergeNode").attr("in", "b"); gm.append("feMergeNode").attr("in", "SourceGraphic");
+
+    const gridSize = 30;
+    defs.append("pattern").attr("id", "dash-grid").attr("width", gridSize).attr("height", gridSize).attr("patternUnits", "userSpaceOnUse")
+      .append("path").attr("d", `M ${gridSize} 0 L 0 0 0 ${gridSize}`).attr("fill", "none").attr("stroke", "var(--map-grid)").attr("stroke-width", 0.5);
+
+    const allC = [];
+    trips.forEach(t => t.legs?.forEach(l => {
+      if (l.origin?.lat != null) allC.push([l.origin.lng, l.origin.lat]);
+      if (l.destination?.lat != null) allC.push([l.destination.lng, l.destination.lat]);
+    }));
+
+    const pad = 30;
+    const proj = allC.length > 0
+      ? d3.geoMercator().fitExtent([[pad, pad], [w - pad, h - pad - 20]], { type: "MultiPoint", coordinates: allC })
+      : d3.geoMercator().center([-98, 38]).scale(w / 6).translate([w / 2, h / 2]);
+    const path = d3.geoPath(proj);
+
+    svg.append("rect").attr("width", w).attr("height", h).attr("fill", "var(--bg-map)");
+    svg.append("rect").attr("width", "100%").attr("height", "100%").attr("fill", "url(#dash-grid)");
+
+    const land = topojson.feature(worldData, worldData.objects.land);
+    const borders = topojson.mesh(worldData, worldData.objects.countries, (a, b) => a !== b);
+    if (isDay) {
+      svg.append("path").datum(land).attr("d", path).attr("fill", "var(--map-land)").attr("stroke", "var(--map-land-stroke)").attr("stroke-width", 0.8);
+      svg.append("path").datum(borders).attr("d", path).attr("fill", "none").attr("stroke", "var(--map-land-stroke)").attr("stroke-width", 0.5);
+    } else {
+      svg.append("path").datum(borders).attr("d", path).attr("fill", "none").attr("stroke", "var(--map-grid)").attr("stroke-width", 0.5);
+    }
+
+    // Ghost arcs (non-hero trips)
+    trips.forEach(trip => {
+      if (trip.id === heroTripId) return;
+      trip.legs?.forEach(leg => {
+        if (leg.type === "hotel" || leg.origin?.lat == null || leg.destination?.lat == null) return;
+        const coords = leg.type === "flight" ? interpolateGC([leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat]) : [[leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat]];
+        const lineGen = d3.line().x(d => proj(d)[0]).y(d => proj(d)[1]).curve(leg.type === "flight" ? d3.curveBasis : d3.curveLinear);
+        svg.append("path").datum(coords).attr("d", lineGen).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 1).attr("opacity", 0.13);
+      });
+      const gc = new Map();
+      trip.legs?.forEach(l => {
+        if (l.type === "hotel") return;
+        if (l.origin?.lat != null) gc.set(`${l.origin.lat},${l.origin.lng}`, { code: l.origin.code, coords: [l.origin.lng, l.origin.lat] });
+        if (l.destination?.lat != null) gc.set(`${l.destination.lat},${l.destination.lng}`, { code: l.destination.code, coords: [l.destination.lng, l.destination.lat] });
+      });
+      gc.forEach(c => {
+        const [x, y] = proj(c.coords);
+        svg.append("circle").attr("cx", x).attr("cy", y).attr("r", 2).attr("fill", "var(--map-arc)").attr("opacity", 0.18);
+        if (c.code) svg.append("text").attr("x", x).attr("y", y - 8).attr("text-anchor", "middle").attr("fill", "var(--map-label)").attr("font-size", "7px").attr("font-family", FONT).attr("opacity", 0.18).text(c.code);
+      });
+    });
+
+    // Hero trip
+    const heroTrip = trips.find(t => t.id === heroTripId);
+    if (heroTrip) {
+      heroTrip.legs?.forEach(leg => {
+        if (leg.type === "hotel" && leg.origin?.lat != null) {
+          const [hx, hy] = proj([leg.origin.lng, leg.origin.lat]);
+          svg.append("circle").attr("cx", hx).attr("cy", hy).attr("r", 22).attr("fill", "var(--map-dwell-glow)");
+          svg.append("circle").attr("cx", hx).attr("cy", hy).attr("r", 16).attr("fill", "var(--accent-hotel)").attr("opacity", 0.08);
+        }
+      });
+
+      let isFirst = true;
+      heroTrip.legs?.forEach(leg => {
+        if (leg.type === "hotel" || leg.origin?.lat == null || leg.destination?.lat == null) return;
+        const coords = leg.type === "flight" ? interpolateGC([leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat]) : [[leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat]];
+        const lineGen = d3.line().x(d => proj(d)[0]).y(d => proj(d)[1]).curve(leg.type === "flight" ? d3.curveBasis : d3.curveLinear);
+        if (isFirst) {
+          svg.append("path").datum(coords).attr("d", lineGen).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 2.5).attr("stroke-linecap", "round").attr("opacity", 0.7);
+          isFirst = false;
+        } else {
+          svg.append("path").datum(coords).attr("d", lineGen).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 1.2).attr("stroke-dasharray", "5,3").attr("opacity", 0.25);
+        }
+      });
+
+      const hc = new Map();
+      heroTrip.legs?.forEach(l => {
+        if (l.type === "hotel") return;
+        if (l.origin?.lat != null) hc.set(`${l.origin.lat},${l.origin.lng}`, { ...l.origin, coords: [l.origin.lng, l.origin.lat] });
+        if (l.destination?.lat != null) hc.set(`${l.destination.lat},${l.destination.lng}`, { ...l.destination, coords: [l.destination.lng, l.destination.lat] });
+      });
+      hc.forEach(city => {
+        const [x, y] = proj(city.coords);
+        svg.append("circle").attr("cx", x).attr("cy", y).attr("r", 7).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 0.5).attr("opacity", 0.4);
+        svg.append("circle").attr("cx", x).attr("cy", y).attr("r", 3.5).attr("fill", "var(--map-dot)");
+        svg.append("text").attr("x", x).attr("y", y - 12).attr("text-anchor", "middle").attr("fill", "var(--map-label)").attr("font-size", "9px").attr("font-family", FONT).attr("font-weight", 600).text(city.code || city.city);
+      });
+
+      const liveLeg = heroTrip.legs?.find(l => l.status === "in_air" || l.status === "in_transit");
+      if (liveLeg) {
+        const lp = getLivePos(liveLeg);
+        if (lp) {
+          const [px, py] = proj([lp.lng, lp.lat]);
+          const ping = svg.append("circle").attr("cx", px).attr("cy", py).attr("r", 5).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 1.5).attr("opacity", 0);
+          (function anim() { ping.attr("r", 5).attr("opacity", 0.6).transition().duration(1800).ease(d3.easeQuadOut).attr("r", 22).attr("opacity", 0).on("end", anim); })();
+          svg.append("circle").attr("cx", px).attr("cy", py).attr("r", 5).attr("fill", "var(--map-arc)").attr("filter", "url(#dash-glow)");
+          svg.append("circle").attr("cx", px).attr("cy", py).attr("r", 2).attr("fill", "var(--bg-primary)");
+        }
+      }
+    }
+
+    const isPast = filter === "completed";
+    const cnt = trips.length;
+    const countText = cnt === 0 ? "NO FLIGHT PLANS FILED" : `${cnt} FLIGHT PLAN${cnt !== 1 ? "S" : ""} ${isPast ? "ARCHIVED" : "FILED"}`;
+    svg.append("text").attr("x", w / 2).attr("y", h - 10).attr("text-anchor", "middle").attr("fill", "var(--map-distance)").attr("font-size", "8px").attr("font-family", FONT).attr("letter-spacing", "2px").text(countText);
+  }, [trips, filter, heroTripId, mode]);
+
+  useEffect(() => { draw(); const h = () => draw(); window.addEventListener("resize", h); return () => window.removeEventListener("resize", h); }, [draw]);
+
+  return (
+    <div ref={containerRef} className="w-full" style={{ height: 195, background: "var(--bg-map)", borderBottom: mode === "day" ? "1px solid var(--border-subtle)" : "none" }}>
+      <svg ref={svgRef} className="w-full h-full" />
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DASHBOARD — Route & Card Helpers
+// ═══════════════════════════════════════════════════════════════════
+
+function InlineRoute({ legs, codeSize = "16px" }) {
+  if (!legs?.length) return null;
+  const items = [];
+  let lastCode = null;
+  for (const leg of legs) {
+    if (leg.type === "hotel") {
+      if (items.length > 0 && items[items.length - 1].t === "c") items.push({ t: "h" });
+      continue;
+    }
+    const oc = leg.origin?.code || leg.origin?.city?.slice(0, 3)?.toUpperCase() || "?";
+    const dc = leg.destination?.code || leg.destination?.city?.slice(0, 3)?.toUpperCase() || "?";
+    if (oc !== lastCode) {
+      if (items.length > 0 && items[items.length - 1].t !== "h") items.push({ t: "f" });
+      items.push({ t: "c", code: oc });
+    }
+    items.push({ t: "f" });
+    items.push({ t: "c", code: dc });
+    lastCode = dc;
+  }
+  return (
+    <div className="flex items-center gap-0.5 overflow-x-auto">
+      {items.map((it, i) => it.t === "c"
+        ? <span key={i} style={{ fontFamily: FONT, fontSize: codeSize, fontWeight: 700, color: "var(--accent-flight-bright)", letterSpacing: "1px", flexShrink: 0 }}>{it.code}</span>
+        : it.t === "f"
+          ? <span key={i} style={{ width: 20, height: 0, borderTop: "1px solid var(--border-primary)", display: "inline-block", flexShrink: 0 }} />
+          : <span key={i} style={{ width: 14, height: 0, borderTop: "1px dashed var(--accent-hotel)", opacity: 0.5, display: "inline-block", flexShrink: 0 }} />
+      )}
+    </div>
+  );
+}
+
+function DashLegIndicators({ legs, showTotal = true }) {
+  const counts = { flight: 0, hotel: 0, train: 0, bus: 0 };
+  (legs || []).forEach(l => { if (counts[l.type] !== undefined) counts[l.type]++; });
+  const total = (legs || []).length;
+  const items = [];
+  if (counts.flight) items.push({ color: "var(--accent-flight)", label: `${counts.flight} FLIGHT${counts.flight !== 1 ? "S" : ""}` });
+  if (counts.hotel) items.push({ color: "var(--accent-hotel)", label: `${counts.hotel} HOTEL${counts.hotel !== 1 ? "S" : ""}` });
+  if (counts.train) items.push({ color: "#d4628a", label: `${counts.train} TRAIN${counts.train !== 1 ? "S" : ""}` });
+  if (counts.bus) items.push({ color: "#7c6bb4", label: `${counts.bus} BUS${counts.bus !== 1 ? "ES" : ""}` });
+  return (
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        {items.map((ind, i) => <div key={i} className="flex items-center gap-1"><span style={{ width: 6, height: 6, borderRadius: "50%", background: ind.color, display: "inline-block" }} /><span style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "1px", color: "var(--text-tertiary)" }}>{ind.label}</span></div>)}
+      </div>
+      {showTotal && <span style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "1px", color: "var(--text-tertiary)" }}>{total} LEG{total !== 1 ? "S" : ""}</span>}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// DASHBOARD PAGE
 // ═══════════════════════════════════════════════════════════════════
 
 function DashboardPage() {
   const { navigate } = useRouter();
+  const { mode } = useTheme();
   const [filter, setFilter] = useState("all");
   const [tab, setTab] = useState("my_trips");
   const [trips, setTrips] = useState([]);
@@ -427,71 +617,216 @@ function DashboardPage() {
   useEffect(() => { fetchData(); }, []);
 
   if (loading) return <LoadingScreen />;
-  if (error) return <div className="text-center py-12"><p className="text-xs" style={{ color: C.red, fontFamily: FONT }}>{error}</p><button onClick={fetchData} className="mt-3 text-xs font-bold tracking-widest" style={{ color: C.textDim, fontFamily: FONT }}>RETRY</button></div>;
+  if (error) return <div className="text-center py-12"><p className="text-xs" style={{ color: "var(--accent-flight)", fontFamily: FONT }}>{error}</p><button onClick={fetchData} className="mt-3 text-xs font-bold tracking-widest" style={{ color: "var(--text-secondary)", fontFamily: FONT }}>RETRY</button></div>;
 
-  const liveTrips = trips.filter(t => getTripStatus(t) === "live");
-  const otherTrips = trips.filter(t => getTripStatus(t) !== "live");
-  const filteredOther = filter === "all" ? otherTrips : otherTrips.filter(t => getTripStatus(t) === filter);
+  const live = trips.filter(t => getTripStatus(t) === "live");
+  const upcoming = trips.filter(t => { const s = getTripStatus(t); return s === "upcoming" || s === "active"; }).sort((a, b) => new Date(a.start_date) - new Date(b.start_date));
+  const past = trips.filter(t => getTripStatus(t) === "completed").sort((a, b) => new Date(b.end_date) - new Date(a.end_date));
+
+  let mapTripsArr;
+  if (filter === "all") mapTripsArr = trips;
+  else if (filter === "upcoming") mapTripsArr = [...live, ...upcoming];
+  else mapTripsArr = past;
+
+  const heroTrip = filter === "completed" ? null : (live[0] || upcoming[0] || null);
+  const nextDep = upcoming[0] || null;
+  const otherUpcoming = upcoming.slice(1);
   const filters = [{ key: "all", label: "ALL" }, { key: "upcoming", label: "UPCOMING" }, { key: "completed", label: "PAST" }];
 
   return (
     <div>
-      <div className="flex gap-0 mb-6 border-b overflow-x-auto" style={{ borderColor: C.border }}>
+      {/* Tab bar */}
+      <div className="flex gap-6" style={{ padding: "14px 16px 0", borderBottom: "1px solid var(--border-subtle)" }}>
         {[{ key: "my_trips", label: "MY ITINERARIES" }, { key: "following", label: "FOLLOWING" }].map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)} className="px-4 py-2.5 text-xs font-bold tracking-widest relative whitespace-nowrap" style={{ color: tab === t.key ? C.text : C.textDim, fontFamily: FONT, fontSize: "10px", letterSpacing: "2px" }}>
-            {t.label}{t.key === "following" && following.length > 0 && <span className="ml-1.5" style={{ color: C.amber }}>{following.length}</span>}
-            {tab === t.key && <div className="absolute bottom-0 left-0 right-0 h-px" style={{ background: C.red }} />}
+          <button key={t.key} onClick={() => setTab(t.key)} className="relative pb-3" style={{ fontFamily: FONT, fontSize: "10px", letterSpacing: "3px", fontWeight: tab === t.key ? 500 : 400, color: tab === t.key ? "var(--accent-flight-bright)" : "var(--text-tertiary)", minHeight: 44, display: "flex", alignItems: "center" }}>
+            {t.label}{t.key === "following" && following.length > 0 && <span className="ml-1.5" style={{ color: "var(--accent-hotel)" }}>{following.length}</span>}
+            {tab === t.key && <div className="absolute bottom-0 left-0 right-0 h-0.5" style={{ background: "var(--accent-flight-bright)" }} />}
           </button>
         ))}
       </div>
 
       {tab === "following" ? (
-        <div>
+        <div className="px-4 py-4">
           <SquawkEntry onClaim={fetchData} />
-          {following.length > 0 && (
+          {following.length > 0 ? (
             <div className="mt-6">
-              <h3 className="text-xs font-bold tracking-widest mb-3" style={{ color: C.textDim, fontFamily: FONT, fontSize: "9px", letterSpacing: "2px" }}>ACTIVE FEEDS</h3>
+              <h3 style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-secondary)", marginBottom: 10, fontWeight: 700 }}>ACTIVE FEEDS</h3>
               <div className="flex flex-col gap-1.5">{following.map(trip => { const presence = computePresence(trip); return (
-                <button key={trip.id} onClick={() => navigate("shared", { tripId: trip.id })} className="w-full text-left border-l-2 transition-all" style={{ borderColor: presence.mode === "transit" ? C[presence.legType] : C.border, background: C.surface }}>
-                  <div className="px-3 sm:px-4 py-3">
-                    <div className="flex items-center gap-2 mb-1.5"><div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0" style={{ background: `${C.red}12`, color: C.red, fontSize: "9px" }}>{(trip.traveler?.name || "?").charAt(0)}</div><span className="text-xs font-bold" style={{ color: C.textMid, fontFamily: FONT }}>{trip.traveler?.name}</span><span style={{ color: C.textGhost }}>·</span><span className="text-sm font-bold truncate" style={{ color: C.text, fontFamily: FONT }}>{trip.title}</span><StatusBadge status={getTripStatus(trip)} /></div>
-                    <div className="flex items-center gap-2 ml-8"><span className="text-sm">{presence.emoji}</span><span className="text-xs truncate" style={{ color: C.textMid, fontFamily: FONT }}>{presence.narrative}</span>{presence.progress != null && <div className="flex items-center gap-2 ml-auto shrink-0"><div className="w-12 sm:w-16 h-1 rounded-full overflow-hidden" style={{ background: C.border }}><div className="h-full rounded-full" style={{ width: `${presence.progress * 100}%`, background: C[presence.legType] }} /></div><span className="text-xs font-bold tabular-nums" style={{ color: C.textDim, fontFamily: FONT, fontSize: "9px" }}>{Math.round(presence.progress * 100)}%</span></div>}</div>
-                  </div>
+                <button key={trip.id} onClick={() => navigate("shared", { tripId: trip.id })} className="w-full text-left" style={{ borderLeft: `3px solid ${presence.mode === "transit" ? (C[presence.legType] || "var(--strip-flight)") : "var(--border-primary)"}`, borderRadius: 4, background: "var(--bg-card)", padding: "10px 12px" }}>
+                  <div className="flex items-center gap-2 mb-1.5"><div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0" style={{ background: "var(--bg-surface)", color: "var(--accent-flight)", fontSize: "9px", border: "1px solid var(--border-primary)" }}>{(trip.traveler?.name || "?").charAt(0)}</div><span className="text-xs font-bold" style={{ color: "var(--text-secondary)", fontFamily: FONT }}>{trip.traveler?.name}</span><span style={{ color: "var(--text-tertiary)" }}>{"·"}</span><span className="text-sm font-bold truncate" style={{ color: "var(--text-heading)", fontFamily: FONT }}>{trip.title}</span><StatusBadge status={getTripStatus(trip)} /></div>
+                  <div className="flex items-center gap-2 ml-8"><span className="text-sm">{presence.emoji}</span><span className="text-xs truncate" style={{ color: "var(--text-secondary)", fontFamily: FONT }}>{presence.narrative}</span>{presence.progress != null && <div className="flex items-center gap-2 ml-auto shrink-0"><div className="w-16 h-1 rounded-full overflow-hidden" style={{ background: "var(--border-primary)" }}><div className="h-full rounded-full" style={{ width: `${presence.progress * 100}%`, background: C[presence.legType] }} /></div><span className="text-xs font-bold tabular-nums" style={{ color: "var(--text-secondary)", fontFamily: FONT, fontSize: "9px" }}>{Math.round(presence.progress * 100)}%</span></div>}</div>
                 </button>); })}</div>
+            </div>
+          ) : (
+            <div className="mt-6" style={{ border: "1px dashed var(--border-primary)", borderRadius: 6, padding: "20px 14px", textAlign: "center" }}>
+              <p style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: "var(--text-tertiary)" }}>NO FOLLOWED TRIPS {"·"} ENTER A SQUAWK CODE TO START</p>
             </div>
           )}
         </div>
       ) : (
         <>
-          {liveTrips.length > 0 && (
-            <div className="mb-6">
-              <div className="flex items-center gap-2 mb-3"><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: C.red }} /><span className="relative inline-flex rounded-full h-2 w-2" style={{ background: C.red }} /></span><h3 className="text-xs font-bold tracking-widest" style={{ color: C.red, fontFamily: FONT, fontSize: "9px", letterSpacing: "2px" }}>LIVE NOW</h3></div>
-              <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${C.red}20`, background: `${C.red}03` }}>
-                {liveTrips.map(trip => { const liveLeg = trip.legs?.find(l => l.status === "in_air" || l.status === "in_transit"); const livePos = liveLeg ? getLivePos(liveLeg) : null; return (
-                  <button key={trip.id} onClick={() => navigate("detail", { tripId: trip.id })} className="w-full text-left group transition-all">
-                    <div className="px-3 sm:px-4 py-3 sm:py-4">
-                      <div className="flex items-center gap-2 sm:gap-3 mb-2 flex-wrap"><h3 className="text-sm font-bold" style={{ color: C.text, fontFamily: FONT }}>{trip.title}</h3><StatusBadge status="live" /></div>
-                      {liveLeg && <div className="flex items-center gap-2 sm:gap-3 py-2 px-3 rounded" style={{ background: "rgba(0,0,0,0.2)" }}><LegPill leg={liveLeg} /><span className="text-xs truncate hidden sm:inline" style={{ color: C.textMid, fontFamily: FONT }}>{liveLeg.carrier} {liveLeg.vehicle_number}</span>{livePos && <div className="flex items-center gap-2 ml-auto"><div className="w-16 sm:w-24 h-1.5 rounded-full overflow-hidden" style={{ background: C.border }}><div className="h-full rounded-full" style={{ width: `${livePos.progress * 100}%`, background: C[liveLeg.type] }} /></div><span className="text-xs font-bold tabular-nums" style={{ color: C.textMid, fontFamily: FONT, fontSize: "10px" }}>{Math.round(livePos.progress * 100)}%</span></div>}</div>}
-                    </div>
-                  </button>); })}
-              </div>
-            </div>
-          )}
-
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-4">
-            <div className="flex gap-1 p-0.5 rounded" style={{ background: C.surface, border: `1px solid ${C.border}` }}>{filters.map(f => <button key={f.key} onClick={() => setFilter(f.key)} className="flex-1 sm:flex-none px-3 py-1.5 rounded text-xs font-bold tracking-widest" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1.5px", color: filter === f.key ? C.text : C.textDim, background: filter === f.key ? "rgba(255,255,255,0.06)" : "transparent" }}>{f.label}</button>)}</div>
-            <button onClick={() => navigate("create")} className="flex items-center justify-center gap-2 px-4 py-2.5 rounded text-xs font-bold tracking-widest" style={{ background: C.red, color: "#fff", fontFamily: FONT, fontSize: "10px", letterSpacing: "1.5px" }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M12 5v14m-7-7h14" /></svg>FILE NEW</button>
+          {/* Filter pills */}
+          <div className="flex" style={{ padding: "10px 16px", borderBottom: "1px solid var(--border-subtle)" }}>
+            {filters.map(f => (
+              <button key={f.key} onClick={() => setFilter(f.key)} className="flex-1 text-center relative" style={{ padding: "8px 0", fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: filter === f.key ? "var(--accent-flight-bright)" : "var(--text-tertiary)", minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {f.label}
+                {filter === f.key && <div className="absolute bottom-0 left-2 right-2 h-px" style={{ background: "var(--accent-flight)" }} />}
+              </button>
+            ))}
           </div>
 
-          <div className="flex flex-col gap-1.5">
-            {filteredOther.map(trip => { const status = getTripStatus(trip), isDone = status === "completed", cities = []; trip.legs?.forEach(l => { if (l.origin?.city && !cities.includes(l.origin.city)) cities.push(l.origin.city); if (l.destination?.city && !cities.includes(l.destination.city)) cities.push(l.destination.city); }); return (
-              <button key={trip.id} onClick={() => navigate("detail", { tripId: trip.id })} className="w-full text-left group border-l-2 transition-all" style={{ borderColor: isDone ? "rgba(255,255,255,0.03)" : C.border, background: C.surface, opacity: isDone ? 0.5 : 1 }}>
-                <div className="px-3 sm:px-4 py-3">
-                  <div className="flex items-center gap-2 sm:gap-3 mb-1.5 flex-wrap"><h3 className="text-sm font-bold" style={{ color: C.text, fontFamily: FONT }}>{trip.title}</h3><StatusBadge status={status} /></div>
-                  <div className="flex items-center gap-2 flex-wrap"><div className="flex items-center gap-1.5 flex-wrap">{cities.slice(0, 4).map((c, i) => <span key={c} className="flex items-center gap-1.5"><span className="text-xs" style={{ color: C.textMid, fontFamily: FONT }}>{c}</span>{i < Math.min(cities.length, 4) - 1 && <span style={{ color: C.textGhost }}>→</span>}</span>)}</div><span className="text-xs" style={{ color: C.textDim, fontFamily: FONT, fontSize: "10px" }}>{trip.legs?.length || 0} LEG{(trip.legs?.length || 0) !== 1 ? "S" : ""}</span></div>
+          {/* Global radar map */}
+          <DashboardMap trips={mapTripsArr} filter={filter} heroTripId={heroTrip?.id} />
+
+          {/* Trip cards */}
+          <div className="px-4 py-4">
+            {trips.length === 0 ? (
+              <button onClick={() => navigate("create")} className="w-full text-left" style={{ border: "1px dashed var(--border-primary)", borderRadius: 6, padding: "24px 14px", textAlign: "center" }}>
+                <p style={{ fontFamily: FONT, fontSize: "12px", letterSpacing: "1px", color: "var(--text-secondary)", marginBottom: 8 }}>FILE YOUR FIRST FLIGHT PLAN</p>
+                <p style={{ fontFamily: FONT, fontSize: "16px", fontWeight: 700, letterSpacing: "2px", color: "var(--text-tertiary)", marginBottom: 8 }}>??? {"→"} ???</p>
+                <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>Tap FILE to begin tracking</p>
+              </button>
+            ) : filter === "completed" ? (
+              past.length > 0 ? (
+                <div>
+                  <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-tertiary)", marginBottom: 10 }}>PAST</p>
+                  <div className="flex flex-col gap-2">
+                    {past.map(trip => (
+                      <button key={trip.id} onClick={() => navigate("detail", { tripId: trip.id })} className="w-full text-left" style={{ opacity: 0.5, border: "1px solid var(--border-primary)", borderLeft: "3px solid var(--strip-flight)", borderRadius: 6, padding: 14, background: "var(--bg-card)" }}>
+                        <div className="flex items-center justify-between mb-1">
+                          <h3 style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 600, color: "var(--text-heading)" }}>{trip.title}</h3>
+                        </div>
+                        <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", letterSpacing: "0.5px", marginBottom: 6 }}>{formatDateRange(trip.start_date, trip.end_date)}</p>
+                        <InlineRoute legs={trip.legs} codeSize="14px" />
+                        <div className="mt-2"><DashLegIndicators legs={trip.legs} showTotal={false} /></div>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </button>); })}
-            {filteredOther.length === 0 && <div className="text-center py-12 rounded" style={{ background: C.surface, border: `1px dashed ${C.border}` }}><p className="text-xs" style={{ color: C.textGhost, fontFamily: FONT }}>{trips.length === 0 ? "No trips yet. File your first itinerary." : "No trips match this filter"}</p></div>}
+              ) : (
+                <div style={{ border: `1px dashed ${mode === "night" ? "var(--border-subtle)" : "var(--border-primary)"}`, borderRadius: 6, padding: "20px 14px", textAlign: "center" }}>
+                  <p style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: "var(--text-tertiary)" }}>NO COMPLETED FLIGHT PLANS</p>
+                </div>
+              )
+            ) : (
+              <>
+                {/* Live Now */}
+                {live.length > 0 && (
+                  <div className="mb-4">
+                    <div className="flex items-center gap-2 mb-2.5">
+                      <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--accent-flight)" }} /><span className="relative inline-flex rounded-full h-2 w-2" style={{ background: "var(--accent-flight)" }} /></span>
+                      <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--accent-flight-bright)", fontWeight: 700 }}>LIVE NOW</p>
+                    </div>
+                    {live.map(trip => {
+                      const liveLeg = trip.legs?.find(l => l.status === "in_air" || l.status === "in_transit");
+                      const livePos = liveLeg ? getLivePos(liveLeg) : null;
+                      return (
+                        <button key={trip.id} onClick={() => navigate("detail", { tripId: trip.id })} className="w-full text-left mb-2" style={{ border: "1px solid var(--border-primary)", borderLeft: "3px solid var(--strip-flight)", borderRadius: 6, padding: 14, background: "var(--bg-card)" }}>
+                          <div className="flex items-center justify-between mb-2">
+                            <h3 style={{ fontFamily: FONT, fontSize: "16px", fontWeight: 600, color: "var(--text-heading)" }}>{trip.title}</h3>
+                            <span className="inline-flex items-center gap-1.5 px-2 py-1" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: "var(--accent-flight-bright)", border: "1px solid var(--accent-flight)", borderRadius: 4 }}>
+                              <span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--accent-flight)" }} /><span className="relative inline-flex rounded-full h-1.5 w-1.5" style={{ background: "var(--accent-flight)" }} /></span>
+                              EN ROUTE
+                            </span>
+                          </div>
+                          {liveLeg && (
+                            <>
+                              <div className="flex items-center gap-2 mb-2">
+                                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--accent-flight)", display: "inline-block" }} />
+                                <span style={{ fontFamily: FONT, fontSize: "12px", fontWeight: 600, color: "var(--accent-flight-bright)" }}>{liveLeg.origin?.code || "?"} {"→"} {liveLeg.destination?.code || "?"}</span>
+                                {livePos && (
+                                  <div className="flex items-center gap-2 ml-auto">
+                                    <div style={{ width: 80, height: 4, borderRadius: 2, background: "var(--border-primary)", overflow: "hidden" }}>
+                                      <div style={{ width: `${livePos.progress * 100}%`, height: "100%", borderRadius: 2, background: "var(--accent-flight)" }} />
+                                    </div>
+                                    <span style={{ fontFamily: FONT, fontSize: "9px", fontWeight: 700, color: "var(--text-secondary)" }}>{Math.round(livePos.progress * 100)}%</span>
+                                  </div>
+                                )}
+                              </div>
+                              <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)", letterSpacing: "0.5px" }}>
+                                {[liveLeg.carrier, liveLeg.vehicle_number, liveLeg.arrive_time ? `LANDS ${formatTime(liveLeg.arrive_time)}` : null].filter(Boolean).join(" · ")}
+                              </p>
+                            </>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Next Departure (hero card) */}
+                {nextDep && (
+                  <div className="mb-4">
+                    <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-secondary)", marginBottom: 10, fontWeight: 700 }}>NEXT DEPARTURE</p>
+                    <button onClick={() => navigate("detail", { tripId: nextDep.id })} className="w-full text-left" style={{ border: "1px solid var(--border-primary)", borderLeft: "3px solid var(--strip-flight)", borderRadius: 6, padding: 14, background: "var(--bg-card)" }}>
+                      <div className="flex items-center justify-between mb-1">
+                        <h3 style={{ fontFamily: FONT, fontSize: "16px", fontWeight: 600, color: "var(--text-heading)" }}>{nextDep.title}</h3>
+                        <span className="px-2.5 py-1 shrink-0" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: "var(--accent-countdown)", border: "1px solid var(--accent-hotel-dim)", borderRadius: 4, fontWeight: 500 }}>{getCountdown(nextDep).text}</span>
+                      </div>
+                      <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", letterSpacing: "0.5px", marginBottom: 8 }}>{formatDateRange(nextDep.start_date, nextDep.end_date)}</p>
+                      <div style={{ marginBottom: 8 }}><InlineRoute legs={nextDep.legs} codeSize="16px" /></div>
+                      <DashLegIndicators legs={nextDep.legs} showTotal={true} />
+                    </button>
+                  </div>
+                )}
+
+                {/* Remaining upcoming (compact cards) */}
+                {otherUpcoming.length > 0 && (
+                  <div className="mb-4">
+                    <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-tertiary)", marginBottom: 10 }}>UPCOMING</p>
+                    <div className="flex flex-col gap-2">
+                      {otherUpcoming.map(trip => {
+                        const ms = trip.legs?.[0]?.depart_time ? new Date(trip.legs[0].depart_time).getTime() - Date.now() : 0;
+                        const days = Math.max(0, Math.floor(ms / 86400000));
+                        const shortCd = ms > 0 ? `T-${days}D` : null;
+                        return (
+                          <button key={trip.id} onClick={() => navigate("detail", { tripId: trip.id })} className="w-full text-left" style={{ opacity: mode === "day" ? 0.55 : 0.65, border: "1px solid var(--border-primary)", borderLeft: "3px solid var(--strip-flight)", borderRadius: 6, padding: 14, background: "var(--bg-card)" }}>
+                            <div className="flex items-center justify-between mb-1">
+                              <h3 style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 600, color: "var(--text-heading)" }}>{trip.title}</h3>
+                              {shortCd && <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{shortCd}</span>}
+                            </div>
+                            <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", letterSpacing: "0.5px", marginBottom: 6 }}>{formatDateRange(trip.start_date, trip.end_date)}</p>
+                            <InlineRoute legs={trip.legs} codeSize="14px" />
+                            <div className="mt-2"><DashLegIndicators legs={trip.legs} showTotal={false} /></div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Past (when ALL filter) */}
+                {filter === "all" && past.length > 0 && (
+                  <div>
+                    <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-tertiary)", marginBottom: 10 }}>PAST</p>
+                    <div className="flex flex-col gap-2">
+                      {past.map(trip => (
+                        <button key={trip.id} onClick={() => navigate("detail", { tripId: trip.id })} className="w-full text-left" style={{ opacity: 0.5, border: "1px solid var(--border-primary)", borderLeft: "3px solid var(--strip-flight)", borderRadius: 6, padding: 14, background: "var(--bg-card)" }}>
+                          <div className="flex items-center justify-between mb-1">
+                            <h3 style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 600, color: "var(--text-heading)" }}>{trip.title}</h3>
+                          </div>
+                          <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", letterSpacing: "0.5px", marginBottom: 6 }}>{formatDateRange(trip.start_date, trip.end_date)}</p>
+                          <InlineRoute legs={trip.legs} codeSize="14px" />
+                          <div className="mt-2"><DashLegIndicators legs={trip.legs} showTotal={false} /></div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Empty states */}
+                {filter === "upcoming" && live.length === 0 && upcoming.length === 0 && (
+                  <div style={{ border: `1px dashed ${mode === "night" ? "var(--border-subtle)" : "var(--border-primary)"}`, borderRadius: 6, padding: "20px 14px", textAlign: "center" }}>
+                    <p style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: "var(--text-tertiary)" }}>NO UPCOMING FLIGHT PLANS</p>
+                  </div>
+                )}
+                {filter === "all" && live.length === 0 && upcoming.length === 0 && past.length === 0 && trips.length > 0 && (
+                  <div style={{ border: "1px dashed var(--border-primary)", borderRadius: 6, padding: "20px 14px", textAlign: "center" }}>
+                    <p style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: "var(--text-tertiary)" }}>NO TRIPS MATCH THIS FILTER</p>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </>
       )}
@@ -1039,21 +1374,23 @@ function NavRight({ user, signOut }) {
 
   return (
     <div className="relative" ref={ref}>
-      <button onClick={() => setOpen(o => !o)} className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: C.surface, border: `1px solid ${C.border}`, color: C.textDim }} title="Settings">{(user.user_metadata?.name || user.email || "U").charAt(0).toUpperCase()}</button>
+      <button onClick={() => setOpen(o => !o)} className="flex items-center justify-center" style={{ width: 36, height: 36, borderRadius: "50%", border: "1px solid var(--nav-border)", background: "var(--nav-bg)", color: "var(--accent-flight-bright)", fontFamily: FONT, fontSize: "12px", fontWeight: 600 }} title="Settings">
+        {(user.user_metadata?.name || user.email || "U").charAt(0).toUpperCase()}
+      </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1.5 rounded-lg overflow-hidden z-50" style={{ background: "#131316", border: `1px solid ${C.border}`, minWidth: "160px" }}>
-          <div className="px-3 py-2.5" style={{ borderBottom: `1px solid ${C.border}` }}>
-            <p className="text-xs font-bold tracking-widest mb-2" style={{ color: C.textDim, fontFamily: FONT, fontSize: "8px", letterSpacing: "1.5px" }}>THEME</p>
+        <div className="absolute right-0 top-full mt-1.5 rounded-lg overflow-hidden z-50" style={{ background: "var(--bg-card)", border: "1px solid var(--border-primary)", minWidth: "160px" }}>
+          <div className="px-3 py-2.5" style={{ borderBottom: "1px solid var(--border-primary)" }}>
+            <p className="text-xs font-bold tracking-widest mb-2" style={{ color: "var(--text-tertiary)", fontFamily: FONT, fontSize: "8px", letterSpacing: "1.5px" }}>THEME</p>
             <div className="flex gap-0">
               {themeOptions.map(opt => (
-                <button key={opt.key} onClick={() => setPref(opt.key)} className="flex-1 relative py-1.5 text-xs font-bold tracking-widest" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: pref === opt.key ? C.text : C.textDim, minHeight: "44px", minWidth: "44px" }}>
+                <button key={opt.key} onClick={() => setPref(opt.key)} className="flex-1 relative py-1.5 text-xs font-bold tracking-widest" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: pref === opt.key ? "var(--text-heading)" : "var(--text-tertiary)", minHeight: "44px", minWidth: "44px" }}>
                   {opt.label}
-                  {pref === opt.key && <div className="absolute bottom-0 left-1 right-1 h-px" style={{ background: C.green }} />}
+                  {pref === opt.key && <div className="absolute bottom-0 left-1 right-1 h-px" style={{ background: "var(--accent-flight)" }} />}
                 </button>
               ))}
             </div>
           </div>
-          <button onClick={() => { signOut(); setOpen(false); }} className="w-full text-left px-3 py-2.5 text-xs font-bold tracking-widest" style={{ color: C.textDim, fontFamily: FONT, fontSize: "9px", letterSpacing: "1.5px" }}>SIGN OUT</button>
+          <button onClick={() => { signOut(); setOpen(false); }} className="w-full text-left px-3 py-2.5 text-xs font-bold tracking-widest" style={{ color: "var(--text-secondary)", fontFamily: FONT, fontSize: "9px", letterSpacing: "1.5px", minHeight: "44px", display: "flex", alignItems: "center" }}>SIGN OUT</button>
         </div>
       )}
     </div>
@@ -1072,18 +1409,22 @@ function TripTrackApp() {
   useEffect(() => { setTimeout(() => setLoaded(true), 50); }, []);
   const navigate = (page, params = {}) => { setRoute({ page, params }); setLoaded(false); setTimeout(() => setLoaded(true), 50); };
 
-  if (authLoading) return <div className="min-h-screen flex items-center justify-center" style={{ background: C.bg }}><Spinner /></div>;
+  if (authLoading) return <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg-primary)" }}><Spinner /></div>;
   if (!user) return <LoginPage />;
 
-  const isFullWidth = route.page === "detail";
+  const isFullWidth = route.page === "detail" || route.page === "dashboard";
   return (
     <RouterContext.Provider value={{ route, navigate }}>
-      <div className="min-h-screen" style={{ background: C.bg, fontFamily: FONT }}>
+      <div className="min-h-screen" style={{ background: "var(--bg-primary)", fontFamily: FONT }}>
         <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-        <div className="fixed inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse 50% 30% at 15% 0%, rgba(232,66,51,0.03) 0%, transparent 50%)" }} />
-        <div className="sticky top-0 z-40 flex items-center justify-between px-4 sm:px-6 h-[48px] sm:h-[53px]" style={{ borderBottom: `1px solid ${C.border}`, background: "rgba(12,12,14,0.92)", backdropFilter: "blur(12px)" }}>
-          <button onClick={() => navigate("dashboard")} className="text-xs font-bold tracking-widest" style={{ color: C.textDim, fontFamily: FONT, fontSize: "10px", letterSpacing: "3px" }}>TRIPTRACK</button>
-          <NavRight user={user} signOut={signOut} />
+        <div className="sticky top-0 z-40 flex items-center justify-between px-4 sm:px-6 h-[48px] sm:h-[53px]" style={{ borderBottom: "1px solid var(--nav-border)", background: "var(--nav-bg)", backdropFilter: "blur(12px)" }}>
+          <button onClick={() => navigate("dashboard")} style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "3px", color: "var(--text-tertiary)", fontWeight: 700 }}>TRIPTRACK</button>
+          <div className="flex items-center gap-1.5">
+            {route.page === "dashboard" && (
+              <button onClick={() => navigate("create")} className="flex items-center justify-center" style={{ height: 44, padding: "0 16px", borderRadius: 8, background: "var(--squawk-bg)", color: "var(--squawk-text)", fontFamily: FONT, fontSize: "10px", letterSpacing: "2px", fontWeight: 700 }}>FILE</button>
+            )}
+            <NavRight user={user} signOut={signOut} />
+          </div>
         </div>
         <div className="transition-all duration-500" style={{ opacity: loaded ? 1 : 0, transform: loaded ? "translateY(0)" : "translateY(8px)", ...(isFullWidth ? {} : { maxWidth: "42rem", margin: "0 auto", padding: "1.5rem 1rem" }) }}>
           {route.page === "dashboard" && <DashboardPage />}
