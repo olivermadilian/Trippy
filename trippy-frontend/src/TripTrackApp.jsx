@@ -1364,7 +1364,7 @@ function DetailPage({ tripId }) {
   const [bHPlace, setBHPlace] = useState(null); // { lat, lng, city, address }
   const [bO, setBO] = useState(""); const [bD, setBD] = useState(""); const [bDt, setBDt] = useState(""); const [bTm, setBTm] = useState("");
   const [bOPlace, setBOPlace] = useState(null); const [bDPlace, setBDPlace] = useState(null);
-  const resetBuilder = () => { setBFN(""); setBLoading(false); setBAF(null); setBErr(null); setBHN(""); setBHC(""); setBHI(""); setBHO(""); setBHPlace(null); setBO(""); setBD(""); setBDt(""); setBTm(""); setBOPlace(null); setBDPlace(null); };
+  const resetBuilder = () => { const sd = trip?.start_date || ""; const ed = trip?.end_date || ""; setBFN(""); setBLoading(false); setBAF(null); setBErr(null); setBHN(""); setBHC(""); setBHI(sd); setBHO(ed); setBHPlace(null); setBO(""); setBD(""); setBDt(sd); setBTm(""); setBOPlace(null); setBDPlace(null); };
   const typeCfg = { flight: { label: "FLIGHT", color: "var(--strip-flight)" }, hotel: { label: "GROUND STOP", color: "var(--strip-hotel)" }, train: { label: "TRAIN", color: "#d4628a" }, bus: { label: "BUS", color: "#7c6bb4" } };
 
   const fetchTrip = async () => { setLoading(true); try { const t = await api(`/trips/${tripId}`); setTrip(mapTrip(t)); } catch (e) { setTrip(null); } setLoading(false); };
@@ -1569,7 +1569,7 @@ function DetailPage({ tripId }) {
                   <div className="flex items-center justify-between mt-3 pt-3 pb-1" style={{ borderTop: "1px solid var(--border-primary)", position: "sticky", bottom: 0, background: "var(--bg-surface)", zIndex: 2 }}><button onClick={() => { setShowLegBuilder(false); resetBuilder(); }} className="px-4 py-3 rounded text-xs font-bold tracking-widest" style={{ color: "var(--text-secondary)", fontFamily: FONT, fontSize: "10px" }}>CANCEL</button><button onClick={addLeg} disabled={!canConfirm()} className="px-6 py-3 rounded text-xs font-bold tracking-widest" style={{ background: canConfirm() ? "var(--accent-flight)" : "var(--bg-surface)", color: canConfirm() ? "var(--bg-primary)" : "var(--text-tertiary)", fontFamily: FONT, fontSize: "10px" }}>ADD LEG</button></div>
                 </div>
               </div>
-            ) : <button onClick={() => { resetBuilder(); const sd = trip?.start_date || ""; const ed = trip?.end_date || ""; setBDt(sd); setBHI(sd); setBHO(ed); setShowLegBuilder(true); }} className="w-full py-3 rounded border border-dashed text-xs font-bold tracking-widest" style={{ borderColor: "var(--accent-hotel-dim)", color: "var(--accent-hotel)", fontFamily: FONT, fontSize: "9px", letterSpacing: "2px" }}>+ ADD LEG</button>}
+            ) : <button onClick={() => { resetBuilder(); setShowLegBuilder(true); }} className="w-full py-3 rounded border border-dashed text-xs font-bold tracking-widest" style={{ borderColor: "var(--accent-hotel-dim)", color: "var(--accent-hotel)", fontFamily: FONT, fontSize: "9px", letterSpacing: "2px" }}>+ ADD LEG</button>}
           </div>
         )}
       </div>
@@ -1646,9 +1646,9 @@ function CreatePage() {
 
   const resetBuilder = () => {
     setBFN(""); setBLoading(false); setBAF(null); setBErr(null);
-    setFOrigin(""); setFDest(""); setFDepart(""); setFArrive(""); setFCarrier(""); setFFlightNo(""); setFDate("");
-    setHName(""); setHPlace(null); setHCheckIn(""); setHCheckOut(""); setHLocation("");
-    setTOrigin(""); setTDest(""); setTOPlace(null); setTDPlace(null); setTDepart(""); setTArrive(""); setTOperator(""); setTNumber(""); setTDate("");
+    setFOrigin(""); setFDest(""); setFDepart(""); setFArrive(""); setFCarrier(""); setFFlightNo(""); setFDate(tripStart || "");
+    setHName(""); setHPlace(null); setHCheckIn(tripStart || ""); setHCheckOut(tripEnd || ""); setHLocation("");
+    setTOrigin(""); setTDest(""); setTOPlace(null); setTDPlace(null); setTDepart(""); setTArrive(""); setTOperator(""); setTNumber(""); setTDate(tripStart || "");
     setValErrors([]);
   };
 
