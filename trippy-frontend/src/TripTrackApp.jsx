@@ -1368,22 +1368,50 @@ function DetailPage({ tripId }) {
 function CreatePage() {
   const { navigate } = useRouter();
   const { mode } = useTheme();
+
+  // Trip details
   const [tripTitle, setTripTitle] = useState("");
   const [tripStart, setTripStart] = useState("");
   const [tripEnd, setTripEnd] = useState("");
-  const [submitted, setSubmitted] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [newTripId, setNewTripId] = useState(null);
 
-  const handleSubmit = async () => {
-    if (!tripTitle.trim()) return;
-    setSubmitting(true);
-    try {
-      const t = await api("/trips", { method: "POST", body: JSON.stringify({ title: tripTitle, description: "", start_date: tripStart || null, end_date: tripEnd || null }) });
-      setNewTripId(t.id);
-      setSubmitted(true);
-    } catch (e) { alert(e.message); }
-    setSubmitting(false);
+  // Legs added to the plan
+  const [legs, setLegs] = useState([]);
+
+  // Leg builder state
+  const [bType, setBType] = useState("flight");
+  // Flight
+  const [bFN, setBFN] = useState(""); const [bLoading, setBLoading] = useState(false); const [bAF, setBAF] = useState(null); const [bErr, setBErr] = useState(null);
+  const [fOrigin, setFOrigin] = useState(""); const [fDest, setFDest] = useState("");
+  const [fDepart, setFDepart] = useState(""); const [fArrive, setFArrive] = useState("");
+  const [fCarrier, setFCarrier] = useState(""); const [fFlightNo, setFFlightNo] = useState("");
+  const [fDate, setFDate] = useState("");
+  // Hotel
+  const [hName, setHName] = useState(""); const [hPlace, setHPlace] = useState(null);
+  const [hCheckIn, setHCheckIn] = useState(""); const [hCheckOut, setHCheckOut] = useState("");
+  const [hLocation, setHLocation] = useState("");
+  // Train/Bus
+  const [tOrigin, setTOrigin] = useState(""); const [tDest, setTDest] = useState("");
+  const [tOPlace, setTOPlace] = useState(null); const [tDPlace, setTDPlace] = useState(null);
+  const [tDepart, setTDepart] = useState(""); const [tArrive, setTArrive] = useState("");
+  const [tOperator, setTOperator] = useState(""); const [tNumber, setTNumber] = useState("");
+  const [tDate, setTDate] = useState("");
+
+  // Validation
+  const [valErrors, setValErrors] = useState([]);
+
+  // Filing state
+  const [submitting, setSubmitting] = useState(false);
+  const [fileError, setFileError] = useState(null);
+
+  // Discard confirmation
+  const [showDiscard, setShowDiscard] = useState(false);
+
+  const previewRef = useRef(null);
+
+  const hasUnsavedData = tripTitle.trim() || tripStart || tripEnd || legs.length > 0;
+
+  const handleBack = () => {
+    if (hasUnsavedData) { setShowDiscard(true); } else { navigate("dashboard"); }
   };
 
   // Quick date helpers
@@ -1397,65 +1425,186 @@ function CreatePage() {
     { label: "NEXT MONTH", start: (() => { const d = new Date(today); d.setMonth(d.getMonth() + 1, 1); return d; })(), days: 7 },
   ];
 
-  if (submitted) return (
-    <div className="text-center py-20 px-4">
-      <div className="inline-flex items-center gap-2 mb-4">
-        <span className="relative flex h-3 w-3"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--accent-flight)" }} /><span className="relative inline-flex rounded-full h-3 w-3" style={{ background: "var(--accent-flight)" }} /></span>
-        <span style={{ fontFamily: FONT, fontSize: "10px", letterSpacing: "2px", fontWeight: 700, color: "var(--accent-flight-bright)" }}>FILED</span>
-      </div>
-      <h2 className="text-xl font-bold mb-2" style={{ color: "var(--text-heading)", fontFamily: FONT }}>{tripTitle}</h2>
-      <p className="text-xs mb-6" style={{ color: "var(--text-secondary)", fontFamily: FONT }}>Add legs from the trip detail page</p>
-      <div className="flex gap-3 justify-center flex-col sm:flex-row">
-        <button onClick={() => navigate("dashboard")} className="px-4 py-2.5 rounded text-xs font-bold tracking-widest" style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-primary)", fontFamily: FONT, fontSize: "10px", minHeight: 44 }}>DASHBOARD</button>
-        {newTripId && <button onClick={() => navigate("detail", { tripId: newTripId })} className="px-4 py-2.5 rounded text-xs font-bold tracking-widest" style={{ background: "var(--squawk-bg)", color: "var(--squawk-text)", fontFamily: FONT, fontSize: "10px", minHeight: 44 }}>ADD LEGS</button>}
-      </div>
-    </div>
-  );
+  const resetBuilder = () => {
+    setBFN(""); setBLoading(false); setBAF(null); setBErr(null);
+    setFOrigin(""); setFDest(""); setFDepart(""); setFArrive(""); setFCarrier(""); setFFlightNo(""); setFDate("");
+    setHName(""); setHPlace(null); setHCheckIn(""); setHCheckOut(""); setHLocation("");
+    setTOrigin(""); setTDest(""); setTOPlace(null); setTDPlace(null); setTDepart(""); setTArrive(""); setTOperator(""); setTNumber(""); setTDate("");
+    setValErrors([]);
+  };
+
+  // Flight lookup
+  const handleQuery = async () => {
+    if (!bFN.trim()) return; setBLoading(true); setBErr(null); setBAF(null);
+    try {
+      const r = await api(`/flights/lookup?callsign=${bFN.trim().toUpperCase()}`);
+      const af = mapFlightLookup(r);
+      setBAF(af);
+      // Auto-populate manual fields
+      setFOrigin(af.origin.code || "");
+      setFDest(af.destination.code || "");
+      if (af.origin.scheduled) { const d = new Date(af.origin.scheduled); setFDepart(d.toTimeString().slice(0, 5)); setFDate(d.toISOString().split("T")[0]); }
+      if (af.destination.scheduled) { const d = new Date(af.destination.scheduled); setFArrive(d.toTimeString().slice(0, 5)); }
+      setFCarrier(af.carrier || "");
+      setFFlightNo(af.callsign || "");
+    } catch { setBErr("Flight not found \u2014 try another callsign or enter manually"); }
+    setBLoading(false);
+  };
+
+  // Build a leg object from current builder state
+  const buildLeg = () => {
+    if (bType === "flight") {
+      return {
+        type: "flight",
+        origin: { code: fOrigin.toUpperCase(), city: fOrigin, lat: 0, lng: 0 },
+        destination: { code: fDest.toUpperCase(), city: fDest, lat: 0, lng: 0 },
+        depart_time: fDate && fDepart ? `${fDate}T${fDepart}:00Z` : null,
+        arrive_time: fDate && fArrive ? `${fDate}T${fArrive}:00Z` : null,
+        carrier: fCarrier, vehicle_number: fFlightNo,
+        metadata: bAF ? { terminal: bAF.origin.terminal, gate: bAF.origin.gate } : {},
+      };
+    }
+    if (bType === "hotel") {
+      const nights = hCheckIn && hCheckOut ? Math.max(1, Math.round((new Date(hCheckOut) - new Date(hCheckIn)) / 86400000)) : 1;
+      const lat = hPlace?.lat || 0; const lng = hPlace?.lng || 0;
+      const city = hPlace?.city || hLocation || hName;
+      return {
+        type: "hotel",
+        origin: { code: null, city, lat, lng }, destination: { code: null, city, lat, lng },
+        depart_time: hCheckIn ? `${hCheckIn}T15:00:00Z` : null,
+        arrive_time: hCheckOut ? `${hCheckOut}T11:00:00Z` : null,
+        carrier: hName, vehicle_number: null,
+        metadata: { nights, address: hPlace?.address || null },
+      };
+    }
+    // train or bus
+    const oLat = tOPlace?.lat || 0; const oLng = tOPlace?.lng || 0;
+    const dLat = tDPlace?.lat || 0; const dLng = tDPlace?.lng || 0;
+    return {
+      type: bType,
+      origin: { code: tOrigin.slice(0, 3).toUpperCase(), city: tOPlace?.city || tOrigin, lat: oLat, lng: oLng },
+      destination: { code: tDest.slice(0, 3).toUpperCase(), city: tDPlace?.city || tDest, lat: dLat, lng: dLng },
+      depart_time: tDate && tDepart ? `${tDate}T${tDepart}:00Z` : (tDate ? `${tDate}T08:00:00Z` : null),
+      arrive_time: tDate && tArrive ? `${tDate}T${tArrive}:00Z` : (tDate ? `${tDate}T12:00:00Z` : null),
+      carrier: tOperator || (bType === "train" ? "Train" : "Bus"), vehicle_number: tNumber || null,
+      metadata: {},
+    };
+  };
+
+  // Validate and add leg
+  const handleAddLeg = () => {
+    const errs = [];
+    if (bType === "flight") {
+      if (!fOrigin.trim()) errs.push("fOrigin");
+      if (!fDest.trim()) errs.push("fDest");
+    } else if (bType === "hotel") {
+      if (!hName.trim()) errs.push("hName");
+    } else {
+      if (!tOrigin.trim()) errs.push("tOrigin");
+      if (!tDest.trim()) errs.push("tDest");
+    }
+    if (errs.length > 0) { setValErrors(errs); return; }
+    setValErrors([]);
+    const leg = buildLeg();
+    leg._tempId = Date.now();
+    setLegs(prev => [...prev, leg]);
+    resetBuilder();
+    // Scroll to preview
+    setTimeout(() => { previewRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, 100);
+  };
+
+  const removeLeg = (idx) => { setLegs(prev => prev.filter((_, i) => i !== idx)); };
+
+  // File the flight plan
+  const handleFile = async () => {
+    if (!tripTitle.trim()) return;
+    setSubmitting(true); setFileError(null);
+    try {
+      const t = await api("/trips", { method: "POST", body: JSON.stringify({ title: tripTitle, description: "", start_date: tripStart || null, end_date: tripEnd || null }) });
+      // Create each leg
+      for (const leg of legs) {
+        const { _tempId, ...legData } = leg;
+        await api(`/trips/${t.id}/legs`, { method: "POST", body: JSON.stringify(legToApi(legData)) });
+      }
+      navigate("detail", { tripId: t.id });
+    } catch (e) { setFileError("Failed to file flight plan \u2014 check connection and try again"); }
+    setSubmitting(false);
+  };
+
+  const valBorder = (field) => valErrors.includes(field) ? "#e84233" : "var(--border-primary)";
+
+  // Leg type config for segmented control
+  const segTypes = [
+    { key: "flight", label: "FLIGHT", activeBg: "var(--accent-flight)", activeColor: "var(--squawk-text)" },
+    { key: "hotel", label: "GROUND STOP", activeBg: "var(--accent-hotel)", activeColor: "#fff" },
+    { key: "train", label: "TRAIN", activeBg: "#d4628a", activeColor: "#fff" },
+    { key: "bus", label: "BUS", activeBg: "#7c6bb4", activeColor: "#fff" },
+  ];
+
+  // Mini card helpers
+  const miniDate = (iso) => { if (!iso) return ""; const d = new Date(iso); return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }).toUpperCase(); };
+  const miniDuration = (d, a) => { if (!d || !a) return ""; const ms = new Date(a) - new Date(d); if (ms <= 0) return ""; const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000); return h > 0 ? `${h}H ${m}M` : `${m}M`; };
+
+  // Input style helper (for the builder fields)
+  const bInput = (overrides = {}) => ({
+    background: "var(--bg-card)", border: "1px solid var(--border-primary)", borderRadius: 4,
+    padding: "9px 10px", fontFamily: FONT, fontSize: "12px", color: "var(--text-primary)",
+    colorScheme: mode === "night" ? "dark" : "light", outline: "none", width: "100%",
+    ...overrides,
+  });
+  const bLabel = { fontFamily: FONT, fontSize: "7px", letterSpacing: "1.5px", color: "var(--text-tertiary)", marginBottom: 4, display: "block" };
 
   return (
-    <div className="px-4 sm:px-6 py-6" style={{ maxWidth: "32rem", margin: "0 auto" }}>
-      {/* Back link */}
-      <button onClick={() => navigate("dashboard")} className="flex items-center gap-1 mb-6" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: "var(--text-tertiary)", fontWeight: 700, minHeight: 44 }}>
-        {"\u2190"} DASHBOARD
-      </button>
+    <div className="px-4 sm:px-6 py-4" style={{ maxWidth: "36rem", margin: "0 auto" }}>
+      {/* ── Discard confirmation ── */}
+      {showDiscard && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.4)" }}>
+          <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-primary)", borderRadius: 10, padding: "24px 20px", maxWidth: 320, width: "90%", textAlign: "center" }}>
+            <p style={{ fontFamily: FONT, fontSize: "10px", letterSpacing: "2px", color: "var(--text-heading)", fontWeight: 700, marginBottom: 4 }}>DISCARD FLIGHT PLAN?</p>
+            <p style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-tertiary)", marginBottom: 16 }}>Your unsaved changes will be lost.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setShowDiscard(false)} className="flex-1" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", fontWeight: 700, padding: "10px 0", borderRadius: 6, background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border-primary)", minHeight: 44 }}>KEEP EDITING</button>
+              <button onClick={() => navigate("dashboard")} className="flex-1" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", fontWeight: 700, padding: "10px 0", borderRadius: 6, background: "#e84233", color: "#fff", border: "none", minHeight: 44 }}>DISCARD</button>
+            </div>
+          </div>
+        </div>
+      )}
 
-      {/* Header */}
-      <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--accent-flight)", fontWeight: 700, marginBottom: 6 }}>FILE NEW ITINERARY</p>
-      <p style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-tertiary)", marginBottom: 24 }}>Name your trip and set travel dates. Add flights, hotels, and legs after filing.</p>
-
-      {/* Trip name */}
-      <div className="mb-6">
-        <Label>DESIGNATION</Label>
-        <input
-          type="text"
-          value={tripTitle}
-          onChange={e => setTripTitle(e.target.value)}
-          placeholder="Spring Break, NYC Weekend, Euro Trip..."
-          autoFocus
-          className="w-full px-0 py-3 border-0 border-b-2 outline-none text-xl font-bold"
-          style={{ background: "transparent", borderColor: tripTitle ? "var(--accent-flight)" : "var(--border-primary)", color: "var(--text-heading)", fontFamily: FONT, transition: "border-color 0.2s" }}
-        />
+      {/* ── Nav bar ── */}
+      <div className="flex items-center justify-between mb-6">
+        <button onClick={handleBack} style={{ width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid var(--nav-border)", borderRadius: 8, background: "var(--nav-bg)", color: "var(--nav-text-active)", fontFamily: FONT, fontSize: "16px" }}>{"\u2190"}</button>
+        <button onClick={handleBack} style={{ height: 44, padding: "0 16px", border: "1px solid var(--nav-border)", borderRadius: 8, background: "var(--nav-bg)", color: "var(--nav-text)", fontFamily: FONT, fontSize: "10px", letterSpacing: "2px", fontWeight: 500 }}>CANCEL</button>
       </div>
 
-      {/* Quick date buttons */}
-      <div className="mb-4">
-        <Label>QUICK SET</Label>
-        <div className="flex gap-2 flex-wrap">
+      {/* ── Page title ── */}
+      <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--accent-flight)", fontWeight: 700, marginBottom: 16 }}>FILE NEW FLIGHT PLAN</p>
+
+      {/* ── Designation ── */}
+      <div className="mb-3">
+        <p style={{ ...bLabel, fontSize: "8px", letterSpacing: "2px" }}>DESIGNATION</p>
+        <div style={{ border: "1px solid var(--border-primary)", borderRadius: 6, padding: "11px 14px", background: "var(--bg-card)" }}>
+          <input
+            type="text" value={tripTitle} onChange={e => setTripTitle(e.target.value)}
+            placeholder="Spring Break, NYC Weekend, Euro Tr..."
+            autoFocus
+            style={{ width: "100%", background: "transparent", border: "none", outline: "none", fontFamily: FONT, fontSize: "15px", fontWeight: 600, color: "var(--text-heading)" }}
+          />
+        </div>
+      </div>
+
+      {/* ── Quick set pills ── */}
+      <div className="mb-3">
+        <p style={{ ...bLabel, fontSize: "8px", letterSpacing: "2px" }}>QUICK SET</p>
+        <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2 }} className="no-scrollbar">
           {quickDates.map(qd => {
             const isActive = tripStart === fmt(qd.start);
             return (
-              <button
-                key={qd.label}
-                onClick={() => { setTripStart(fmt(qd.start)); setTripEnd(fmt(addDays(qd.start, qd.days))); }}
-                style={{
-                  fontFamily: FONT, fontSize: "8px", letterSpacing: "1px", fontWeight: 700,
-                  padding: "8px 12px", borderRadius: 6, minHeight: 36,
-                  background: isActive ? "var(--squawk-bg)" : "var(--bg-surface)",
-                  color: isActive ? "var(--squawk-text)" : "var(--text-secondary)",
+              <button key={qd.label} onClick={() => { setTripStart(fmt(qd.start)); setTripEnd(fmt(addDays(qd.start, qd.days))); }}
+                style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "1px", padding: "8px 12px", borderRadius: 6, whiteSpace: "nowrap",
+                  background: isActive ? "var(--accent-flight)" : "transparent",
+                  color: isActive ? "var(--squawk-text)" : "var(--nav-text)",
                   border: `1px solid ${isActive ? "var(--accent-flight)" : "var(--border-primary)"}`,
-                  transition: "all 0.15s",
-                }}
-              >
+                }}>
                 {qd.label}
               </button>
             );
@@ -1463,44 +1612,225 @@ function CreatePage() {
         </div>
       </div>
 
-      {/* Date inputs */}
-      <div className="grid grid-cols-2 gap-4 mb-8">
-        <div>
-          <Label>DEPART</Label>
-          <Input type="date" value={tripStart} onChange={e => setTripStart(e.target.value)} style={{ minHeight: 48, fontSize: "14px", padding: "10px 12px" }} />
+      {/* ── Date fields ── */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 4 }}>
+        <div style={{ flex: 1 }}>
+          <p style={{ ...bLabel, fontSize: "8px", letterSpacing: "2px" }}>DEPART</p>
+          <div style={{ border: "1px solid var(--border-primary)", borderRadius: 6, padding: "11px 14px", background: "var(--bg-card)" }}>
+            <input type="date" value={tripStart} onChange={e => setTripStart(e.target.value)} style={{ width: "100%", background: "transparent", border: "none", outline: "none", fontFamily: FONT, fontSize: "12px", color: tripStart ? "var(--text-primary)" : "var(--text-tertiary)", colorScheme: mode === "night" ? "dark" : "light" }} />
+          </div>
         </div>
-        <div>
-          <Label>RETURN</Label>
-          <Input type="date" value={tripEnd} onChange={e => setTripEnd(e.target.value)} style={{ minHeight: 48, fontSize: "14px", padding: "10px 12px" }} />
-          {tripStart && tripEnd && new Date(tripEnd) > new Date(tripStart) && (
-            <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)", marginTop: 4 }}>
-              {Math.round((new Date(tripEnd) - new Date(tripStart)) / 86400000)} days
-            </p>
-          )}
+        <div style={{ flex: 1 }}>
+          <p style={{ ...bLabel, fontSize: "8px", letterSpacing: "2px" }}>RETURN</p>
+          <div style={{ border: "1px solid var(--border-primary)", borderRadius: 6, padding: "11px 14px", background: "var(--bg-card)" }}>
+            <input type="date" value={tripEnd} onChange={e => setTripEnd(e.target.value)} style={{ width: "100%", background: "transparent", border: "none", outline: "none", fontFamily: FONT, fontSize: "12px", color: tripEnd ? "var(--text-primary)" : "var(--text-tertiary)", colorScheme: mode === "night" ? "dark" : "light" }} />
+          </div>
         </div>
       </div>
+      <p style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)", marginBottom: 12 }}>Dates are optional {"\u2014"} you can set them later.</p>
 
-      {/* Submit */}
-      <button
-        onClick={handleSubmit}
-        disabled={!tripTitle.trim() || submitting}
-        className="w-full rounded text-xs font-bold tracking-widest"
-        style={{
-          height: 52,
-          background: tripTitle.trim() ? "var(--squawk-bg)" : "var(--bg-surface)",
-          color: tripTitle.trim() ? "var(--squawk-text)" : "var(--text-tertiary)",
-          fontFamily: FONT, fontSize: "11px", letterSpacing: "2px",
-          border: tripTitle.trim() ? "none" : "1px solid var(--border-primary)",
-          transition: "all 0.2s",
-        }}
-      >
-        {submitting ? <span className="flex items-center justify-center gap-2"><Spinner />FILING</span> : "FILE ITINERARY"}
+      {/* ── Divider ── */}
+      <div style={{ borderTop: "1px solid var(--border-subtle)", margin: "12px 0" }} />
+
+      {/* ── Leg preview section ── */}
+      <div ref={previewRef}>
+        <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-secondary)", fontWeight: 700, marginBottom: 10 }}>
+          FLIGHT PLAN {"\u00B7"} {legs.length} WAYPOINT{legs.length !== 1 ? "S" : ""}
+        </p>
+
+        {legs.length === 0 ? (
+          <div style={{ border: "1px dashed var(--border-primary)", borderRadius: 6, padding: "24px 14px", textAlign: "center", marginBottom: 12 }}>
+            <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)", letterSpacing: "1px" }}>ADD YOUR FIRST LEG BELOW</p>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+            {legs.map((leg, i) => {
+              const isHotel = leg.type === "hotel";
+              const stripColors = { flight: "var(--strip-flight)", hotel: "var(--strip-hotel)", train: "#d4628a", bus: "#7c6bb4" };
+              const accentColors = { flight: "var(--accent-flight)", hotel: "var(--accent-hotel)", train: "#d4628a", bus: "#7c6bb4" };
+              return (
+                <div key={leg._tempId || i} style={{ display: "flex", gap: 4 }}>
+                  <div style={{
+                    flex: 1, borderRadius: 4, padding: "10px 12px",
+                    borderLeft: `3px solid ${stripColors[leg.type]}`,
+                    background: isHotel ? "var(--bg-card-hotel)" : "var(--bg-card)",
+                    border: `1px solid ${isHotel ? "var(--border-hotel)" : "var(--border-primary)"}`,
+                    borderLeftWidth: 3, borderLeftColor: stripColors[leg.type], borderLeftStyle: "solid",
+                  }}>
+                    <div className="flex items-center justify-between" style={{ marginBottom: 2 }}>
+                      <span style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "1.5px", color: accentColors[leg.type] }}>
+                        {isHotel ? "GROUND STOP" : leg.type.toUpperCase()} {"\u00B7"} {isHotel ? (leg.metadata?.nights ? `${leg.metadata.nights}N` : "1N") : (leg.vehicle_number || leg.carrier || "")}
+                      </span>
+                      <span style={{ fontFamily: FONT, fontSize: "8px", color: isHotel ? "var(--accent-hotel-dim)" : "var(--text-secondary)" }}>
+                        {isHotel ? `${miniDate(leg.depart_time)}${leg.arrive_time ? ` \u2013 ${miniDate(leg.arrive_time)}` : ""}` : miniDate(leg.depart_time)}
+                      </span>
+                    </div>
+                    {isHotel ? (
+                      <p style={{ fontFamily: FONT, fontSize: "13px", fontWeight: 600, color: "var(--accent-hotel-text)" }}>{leg.carrier || leg.origin?.city}</p>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span style={{ fontFamily: FONT, fontSize: "18px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "1px" }}>{leg.origin?.code || "???"}</span>
+                        <span style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)", flex: 1, textAlign: "center" }}>{miniDuration(leg.depart_time, leg.arrive_time)}</span>
+                        <span style={{ fontFamily: FONT, fontSize: "18px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "1px" }}>{leg.destination?.code || "???"}</span>
+                      </div>
+                    )}
+                  </div>
+                  <button onClick={() => removeLeg(i)} style={{ width: 40, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", fontFamily: FONT, fontSize: "16px", color: mode === "night" ? "#4a2020" : "#c0a0a0", cursor: "pointer" }}
+                    onMouseEnter={e => e.currentTarget.style.color = "#e84233"} onMouseLeave={e => e.currentTarget.style.color = mode === "night" ? "#4a2020" : "#c0a0a0"}
+                  >{"\u2715"}</button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ── Divider ── */}
+      <div style={{ borderTop: "1px solid var(--border-subtle)", margin: "12px 0" }} />
+
+      {/* ── Leg builder ── */}
+      <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-tertiary)", fontWeight: 700, marginBottom: 10 }}>ADD LEG</p>
+
+      {/* Segmented control */}
+      <div style={{ display: "flex", border: "1px solid var(--border-primary)", borderRadius: 6, overflow: "hidden", marginBottom: 12 }}>
+        {segTypes.map((seg, i) => (
+          <button key={seg.key} onClick={() => { setBType(seg.key); resetBuilder(); }}
+            style={{
+              flex: 1, textAlign: "center", padding: "10px 0", fontFamily: FONT, fontSize: "8px", letterSpacing: "1px", fontWeight: bType === seg.key ? 500 : 400,
+              background: bType === seg.key ? seg.activeBg : "transparent",
+              color: bType === seg.key ? seg.activeColor : "var(--text-tertiary)",
+              border: "none", borderLeft: i > 0 ? "1px solid var(--border-primary)" : "none",
+              minHeight: 44, cursor: "pointer",
+            }}>
+            {seg.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── FLIGHT FORM ── */}
+      {bType === "flight" && (
+        <div>
+          {/* Callsign lookup */}
+          <div style={{ border: "1px solid var(--border-primary)", borderRadius: 6, padding: "10px 12px", background: "var(--bg-card)", marginBottom: 10 }}>
+            <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--accent-flight)", marginBottom: 6 }}>CALLSIGN LOOKUP</p>
+            <div style={{ display: "flex", gap: 6 }}>
+              <input type="text" value={bFN} onChange={e => { setBFN(e.target.value); setBAF(null); setBErr(null); }}
+                onKeyDown={e => e.key === "Enter" && handleQuery()}
+                placeholder="DL484"
+                style={{ ...bInput({ flex: 1, textTransform: "uppercase", letterSpacing: "1px", background: "var(--bg-surface)" }) }}
+              />
+              <button onClick={handleQuery} disabled={bLoading || !bFN.trim()}
+                style={{ height: 40, padding: "0 14px", background: "var(--squawk-bg)", color: "var(--squawk-text)", borderRadius: 6, border: "none", fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap" }}>
+                {bLoading ? <Spinner /> : "QUERY"}
+              </button>
+            </div>
+            <p style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)", marginTop: 6 }}>Or enter details manually below</p>
+            {bErr && <p style={{ fontFamily: FONT, fontSize: "8px", color: "#e84233", marginTop: 4 }}>{bErr}</p>}
+          </div>
+
+          {/* Manual fields */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+            <div style={{ flex: 1 }}><p style={bLabel}>ORIGIN</p><input type="text" value={fOrigin} onChange={e => setFOrigin(e.target.value)} placeholder="LAX" style={{ ...bInput({ borderColor: valBorder("fOrigin"), textTransform: "uppercase" }) }} /></div>
+            <div style={{ flex: 1 }}><p style={bLabel}>DESTINATION</p><input type="text" value={fDest} onChange={e => setFDest(e.target.value)} placeholder="PVR" style={{ ...bInput({ borderColor: valBorder("fDest"), textTransform: "uppercase" }) }} /></div>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+            <div style={{ flex: 1 }}><p style={bLabel}>DEPART</p><input type="time" value={fDepart} onChange={e => setFDepart(e.target.value)} style={bInput()} /></div>
+            <div style={{ flex: 1 }}><p style={bLabel}>ARRIVE</p><input type="time" value={fArrive} onChange={e => setFArrive(e.target.value)} style={bInput()} /></div>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+            <div style={{ flex: 1 }}><p style={bLabel}>CARRIER</p><input type="text" value={fCarrier} onChange={e => setFCarrier(e.target.value)} placeholder="Delta" style={bInput()} /></div>
+            <div style={{ flex: 1 }}><p style={bLabel}>FLIGHT NO.</p><input type="text" value={fFlightNo} onChange={e => setFFlightNo(e.target.value)} placeholder="DL484" style={{ ...bInput({ textTransform: "uppercase" }) }} /></div>
+          </div>
+          <div style={{ marginBottom: 6 }}><p style={bLabel}>DATE</p><input type="date" value={fDate} onChange={e => setFDate(e.target.value)} style={bInput()} /></div>
+        </div>
+      )}
+
+      {/* ── GROUND STOP FORM ── */}
+      {bType === "hotel" && (
+        <div>
+          <div style={{ marginBottom: 6 }}>
+            <p style={bLabel}>HOTEL / ACCOMMODATION</p>
+            <PlaceAutocomplete value={hName} onChange={setHName}
+              onSelect={(p) => { setHPlace(p); if (p.city) setHLocation(p.city); }}
+              placeholder="Search hotel or address..." types="lodging"
+            />
+            {hPlace?.address && <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)", marginTop: 4 }}>{hPlace.address}</p>}
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+            <div style={{ flex: 1 }}><p style={bLabel}>CHECK IN</p><input type="date" value={hCheckIn} onChange={e => setHCheckIn(e.target.value)} style={{ ...bInput({ borderColor: valBorder("hName") }) }} /></div>
+            <div style={{ flex: 1 }}><p style={bLabel}>CHECK OUT</p><input type="date" value={hCheckOut} onChange={e => setHCheckOut(e.target.value)} style={bInput()} /></div>
+          </div>
+          {hCheckIn && hCheckOut && new Date(hCheckOut) > new Date(hCheckIn) && (
+            <p style={{ fontFamily: FONT, fontSize: "8px", color: "var(--accent-hotel)", marginBottom: 6 }}>
+              {Math.round((new Date(hCheckOut) - new Date(hCheckIn)) / 86400000)} NIGHTS
+            </p>
+          )}
+          <div style={{ marginBottom: 6 }}>
+            <p style={bLabel}>LOCATION</p>
+            <input type="text" value={hLocation} onChange={e => setHLocation(e.target.value)} placeholder="City, Country" style={bInput()} />
+          </div>
+        </div>
+      )}
+
+      {/* ── TRAIN FORM ── */}
+      {bType === "train" && (
+        <div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+            <div style={{ flex: 1 }}><p style={bLabel}>ORIGIN</p><PlaceAutocomplete value={tOrigin} onChange={setTOrigin} onSelect={p => setTOPlace(p)} placeholder="Penn Station, NYC" types="transit_station|train_station|locality" /></div>
+            <div style={{ flex: 1 }}><p style={bLabel}>DESTINATION</p><PlaceAutocomplete value={tDest} onChange={setTDest} onSelect={p => setTDPlace(p)} placeholder="Union Station, DC" types="transit_station|train_station|locality" /></div>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+            <div style={{ flex: 1 }}><p style={bLabel}>DEPART</p><input type="time" value={tDepart} onChange={e => setTDepart(e.target.value)} style={bInput()} /></div>
+            <div style={{ flex: 1 }}><p style={bLabel}>ARRIVE</p><input type="time" value={tArrive} onChange={e => setTArrive(e.target.value)} style={bInput()} /></div>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+            <div style={{ flex: 1 }}><p style={bLabel}>OPERATOR</p><input type="text" value={tOperator} onChange={e => setTOperator(e.target.value)} placeholder="Amtrak, SNCF..." style={bInput()} /></div>
+            <div style={{ flex: 1 }}><p style={bLabel}>TRAIN NO.</p><input type="text" value={tNumber} onChange={e => setTNumber(e.target.value)} placeholder="NE Regional 171" style={bInput()} /></div>
+          </div>
+          <div style={{ marginBottom: 6 }}><p style={bLabel}>DATE</p><input type="date" value={tDate} onChange={e => setTDate(e.target.value)} style={bInput()} /></div>
+        </div>
+      )}
+
+      {/* ── BUS FORM ── */}
+      {bType === "bus" && (
+        <div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+            <div style={{ flex: 1 }}><p style={bLabel}>ORIGIN</p><PlaceAutocomplete value={tOrigin} onChange={setTOrigin} onSelect={p => setTOPlace(p)} placeholder="Port Authority, NYC" types="transit_station|bus_station|locality" /></div>
+            <div style={{ flex: 1 }}><p style={bLabel}>DESTINATION</p><PlaceAutocomplete value={tDest} onChange={setTDest} onSelect={p => setTDPlace(p)} placeholder="South Station, Boston" types="transit_station|bus_station|locality" /></div>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+            <div style={{ flex: 1 }}><p style={bLabel}>DEPART</p><input type="time" value={tDepart} onChange={e => setTDepart(e.target.value)} style={bInput()} /></div>
+            <div style={{ flex: 1 }}><p style={bLabel}>ARRIVE</p><input type="time" value={tArrive} onChange={e => setTArrive(e.target.value)} style={bInput()} /></div>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+            <div style={{ flex: 1 }}><p style={bLabel}>OPERATOR</p><input type="text" value={tOperator} onChange={e => setTOperator(e.target.value)} placeholder="FlixBus, Greyhound..." style={bInput()} /></div>
+            <div style={{ flex: 1 }}><p style={bLabel}>BUS NO.</p><input type="text" value={tNumber} onChange={e => setTNumber(e.target.value)} placeholder="Route 42" style={bInput()} /></div>
+          </div>
+          <div style={{ marginBottom: 6 }}><p style={bLabel}>DATE</p><input type="date" value={tDate} onChange={e => setTDate(e.target.value)} style={bInput()} /></div>
+        </div>
+      )}
+
+      {/* + ADD TO PLAN button */}
+      <button onClick={handleAddLeg}
+        style={{ width: "100%", height: 44, border: "1px solid var(--border-primary)", borderRadius: 8, background: "var(--nav-bg)", color: "var(--accent-flight-bright)", fontFamily: FONT, fontSize: "10px", letterSpacing: "2px", fontWeight: 500, cursor: "pointer", margin: "12px 0" }}>
+        + ADD TO PLAN
       </button>
 
-      {/* Helper text */}
-      <p className="text-center mt-3" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>
-        Dates are optional {"\u2014"} you can always set them later.
-      </p>
+      {/* ── Divider ── */}
+      <div style={{ borderTop: "1px solid var(--border-subtle)", margin: "12px 0" }} />
+
+      {/* ── FILE FLIGHT PLAN ── */}
+      <button onClick={handleFile} disabled={!tripTitle.trim() || submitting}
+        style={{
+          width: "100%", height: 52, borderRadius: 10, fontFamily: FONT, fontSize: "11px", letterSpacing: "3px", fontWeight: 500, cursor: tripTitle.trim() ? "pointer" : "default",
+          background: tripTitle.trim() ? "var(--squawk-bg)" : "var(--bg-surface)",
+          color: tripTitle.trim() ? "var(--squawk-text)" : "var(--text-tertiary)",
+          border: tripTitle.trim() ? "none" : "1px solid var(--border-subtle)",
+        }}>
+        {submitting ? <span className="flex items-center justify-center gap-2"><Spinner /> FILING...</span> : "FILE FLIGHT PLAN"}
+      </button>
+      <p style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)", textAlign: "center", marginTop: 8 }}>Saves trip and opens detail view</p>
+      {fileError && <p style={{ fontFamily: FONT, fontSize: "9px", color: "#e84233", textAlign: "center", marginTop: 8 }}>{fileError}</p>}
     </div>
   );
 }
