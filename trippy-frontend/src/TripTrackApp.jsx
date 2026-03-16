@@ -149,6 +149,9 @@ const NIGHT_TOKENS = {
   "--timeline-dot-bg": "#000000",
   "--strip-flight": "#22c55e",
   "--strip-hotel": "#c9993a",
+  "--danger-text": "#e84233",
+  "--danger-border": "rgba(232, 66, 51, 0.4)",
+  "--danger-bg": "rgba(232, 66, 51, 0.08)",
 };
 
 const DAY_TOKENS = {
@@ -192,6 +195,9 @@ const DAY_TOKENS = {
   "--timeline-dot-bg": "#f0f4f2",
   "--strip-flight": "#1a5c3a",
   "--strip-hotel": "#c9993a",
+  "--danger-text": "#e84233",
+  "--danger-border": "rgba(232, 66, 51, 0.4)",
+  "--danger-bg": "rgba(232, 66, 51, 0.08)",
 };
 
 function computeMode(pref) {
@@ -317,13 +323,23 @@ function LoginPage() {
 // ═══════════════════════════════════════════════════════════════════
 
 function SquawkModal({ trip, onClose }) {
+  const { mode } = useTheme();
   const [squawk, setSquawk] = useState(null);
   const [copied, setCopied] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [viewers, setViewers] = useState([]);
   const [error, setError] = useState(null);
+  const [revokeConfirm, setRevokeConfirm] = useState(null);
 
-  useEffect(() => { api(`/squawk/trip/${trip.id}`).then(codes => setViewers((codes || []).filter(c => c.claimed_by))).catch(() => {}); }, [trip.id]);
+  useEffect(() => {
+    api(`/squawk/trip/${trip.id}`).then(codes => {
+      const claimed = (codes || []).filter(c => c.claimed_by);
+      setViewers(claimed);
+      // If there's an active unexpired code, display it
+      const active = (codes || []).find(c => !c.claimed_by && new Date(c.expires_at) > new Date());
+      if (active) setSquawk(active.code);
+    }).catch(() => {});
+  }, [trip.id]);
 
   const generate = async () => {
     setGenerating(true); setCopied(null); setError(null);
@@ -331,41 +347,97 @@ function SquawkModal({ trip, onClose }) {
     setGenerating(false);
   };
 
-  const revoke = async (codeId) => { try { await api(`/squawk/${codeId}`, { method: "DELETE" }); setViewers(v => v.filter(c => c.id !== codeId)); } catch (e) { setError(e.message); } };
-  const copy = (type) => { const text = type === "code" ? squawk : `Follow my trip "${trip.title}" on TripTrack.\nSquawk code: ${squawk}`; navigator.clipboard?.writeText(text).catch(() => {}); setCopied(type); setTimeout(() => setCopied(null), 2000); };
+  const revoke = async (codeId) => {
+    try { await api(`/squawk/${codeId}`, { method: "DELETE" }); setViewers(v => v.filter(c => c.id !== codeId)); setRevokeConfirm(null); } catch (e) { setError(e.message); }
+  };
+
+  const copy = (type) => {
+    const text = type === "code" ? squawk : `Follow my trip "${trip.title}" on TripTrack.\nSquawk code: ${squawk}`;
+    navigator.clipboard?.writeText(text).catch(() => {});
+    setCopied(type); setTimeout(() => setCopied(null), 2000);
+  };
+
+  const timeAgo = (dateStr) => {
+    if (!dateStr) return "";
+    const ms = Date.now() - new Date(dateStr).getTime();
+    const m = Math.floor(ms / 60000), h = Math.floor(m / 60), d = Math.floor(h / 24);
+    if (d > 0) return `${d}d`;
+    if (h > 0) return `${h}h`;
+    return `${m}m`;
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }} onClick={onClose}>
-      <div className="w-full sm:max-w-sm sm:mx-4 rounded-t-xl sm:rounded-lg overflow-hidden" style={{ background: "#131316", border: `1px solid ${C.border}` }} onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: `1px solid ${C.border}` }}>
-          <div><h3 className="text-xs font-bold tracking-widest" style={{ color: C.text, fontFamily: FONT, fontSize: "10px", letterSpacing: "2px" }}>SHARE TRIP</h3><p className="text-xs mt-0.5" style={{ color: C.textDim, fontFamily: FONT, fontSize: "10px" }}>{trip.title}</p></div>
-          <button onClick={onClose} className="p-2 -mr-2" style={{ color: C.textDim }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg></button>
-        </div>
-        <div className="px-5 py-5 max-h-[70vh] overflow-y-auto">
-          <p className="text-xs mb-5" style={{ color: C.textMid, fontFamily: FONT, fontSize: "11px", lineHeight: 1.6 }}>Generate a one-time squawk code. Send it to someone — they enter it, your trip appears in their feed. Expires in 24 hours.</p>
-          {error && <div className="mb-3 px-3 py-2 rounded text-xs" style={{ background: `${C.red}08`, color: C.red, fontFamily: FONT }}>{error}</div>}
-          {!squawk ? (
-            <button onClick={generate} disabled={generating} className="w-full py-3.5 rounded text-xs font-bold tracking-widest" style={{ background: generating ? C.surface : C.red, color: generating ? C.textDim : "#fff", fontFamily: FONT, fontSize: "10px", letterSpacing: "2px" }}>{generating ? <span className="flex items-center justify-center gap-2"><Spinner />GENERATING</span> : "GENERATE SQUAWK CODE"}</button>
-          ) : (
+    <div className="fixed inset-0 z-50 flex items-end justify-center" style={{ background: mode === "night" ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0.3)" }} onClick={onClose}>
+      <div className="w-full sm:max-w-md" style={{ background: "var(--bg-primary)", borderTop: "1px solid var(--border-primary)", borderRadius: "16px 16px 0 0", maxHeight: "85vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+        <div style={{ padding: "20px 16px 24px" }}>
+          {/* Drag handle */}
+          <div style={{ width: 36, height: 4, background: "var(--border-primary)", borderRadius: 2, margin: "0 auto 16px" }} />
+
+          {/* Header row */}
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 12 }}>
             <div>
-              <div className="text-center py-5 rounded mb-4" style={{ background: "rgba(0,0,0,0.4)", border: `1px solid ${C.red}20` }}>
-                <p className="text-xs font-bold tracking-widest mb-3" style={{ color: C.textDim, fontFamily: FONT, fontSize: "8px", letterSpacing: "2px" }}>SQUAWK CODE</p>
-                <div className="flex items-center justify-center gap-1.5">{squawk.split("").map((ch, i) => <span key={i} className="inline-flex items-center justify-center w-10 h-12 rounded text-lg font-bold" style={{ background: `${C.red}08`, color: C.text, fontFamily: FONT, border: `1px solid ${C.red}18` }}>{ch}</span>)}</div>
-                <p className="text-xs mt-3" style={{ color: C.textDim, fontFamily: FONT, fontSize: "9px" }}>24H EXPIRY · SINGLE USE</p>
-              </div>
-              <div className="flex gap-2 mb-3">
-                <button onClick={() => copy("code")} className="flex-1 py-3 rounded text-xs font-bold tracking-widest" style={{ background: copied === "code" ? `${C.green}12` : C.surface, color: copied === "code" ? C.green : C.textMid, border: `1px solid ${copied === "code" ? C.green + "30" : C.border}`, fontFamily: FONT, fontSize: "9px", letterSpacing: "1.5px" }}>{copied === "code" ? "COPIED" : "COPY CODE"}</button>
-                <button onClick={() => copy("msg")} className="flex-1 py-3 rounded text-xs font-bold tracking-widest" style={{ background: copied === "msg" ? `${C.green}12` : C.surface, color: copied === "msg" ? C.green : C.textMid, border: `1px solid ${copied === "msg" ? C.green + "30" : C.border}`, fontFamily: FONT, fontSize: "9px", letterSpacing: "1.5px" }}>{copied === "msg" ? "COPIED" : "COPY MESSAGE"}</button>
-              </div>
-              <button onClick={generate} className="w-full text-center text-xs font-bold tracking-widest py-2" style={{ color: C.textDim, fontFamily: FONT, fontSize: "9px" }}>REGENERATE</button>
+              <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-secondary)" }}>TRANSPONDER</p>
+              <p style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 600, color: "var(--text-heading)", marginTop: 2 }}>Share Trip</p>
             </div>
+            <button onClick={onClose} style={{ width: 32, height: 32, border: "1px solid var(--border-primary)", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--nav-text)", fontFamily: FONT, fontSize: "16px", background: "transparent" }}>{"\u00D7"}</button>
+          </div>
+
+          {/* Description */}
+          <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", lineHeight: 1.5, marginBottom: 16 }}>Generate a one-time squawk code. Send it to someone — they enter it, your trip appears in their feed. Expires in 24 hours.</p>
+
+          {error && <div style={{ marginBottom: 12, padding: "8px 12px", borderRadius: 6, background: "var(--danger-bg)", color: "var(--danger-text)", fontFamily: FONT, fontSize: "9px" }}>{error}</div>}
+
+          {/* Squawk code section */}
+          <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-tertiary)", textAlign: "center", marginBottom: 10 }}>SQUAWK CODE</p>
+
+          {generating ? (
+            <div style={{ display: "flex", justifyContent: "center", padding: "20px 0" }}><Spinner /></div>
+          ) : !squawk ? (
+            <button onClick={generate} style={{ width: "100%", height: 52, borderRadius: 10, background: "var(--squawk-bg)", color: "var(--squawk-text)", fontFamily: FONT, fontSize: "11px", letterSpacing: "3px", fontWeight: 500, border: "none", cursor: "pointer", marginBottom: 10 }}>GENERATE SQUAWK CODE</button>
+          ) : (
+            <>
+              {/* Six character cells */}
+              <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 8 }}>
+                {squawk.split("").map((ch, i) => (
+                  <div key={i} style={{ width: 44, height: 52, border: "1.5px solid var(--accent-flight)", borderRadius: 6, background: "var(--bg-card)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT, fontSize: "22px", fontWeight: 700, color: "var(--accent-flight-bright)" }}>{ch}</div>
+                ))}
+              </div>
+              <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--text-tertiary)", textAlign: "center", marginBottom: 16 }}>24H EXPIRY {"\u00B7"} SINGLE USE</p>
+
+              {/* Action buttons */}
+              <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                <button onClick={() => copy("code")} style={{ flex: 1, height: 44, border: "1px solid var(--border-primary)", borderRadius: 8, background: "var(--nav-bg)", color: "var(--accent-flight-bright)", fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", cursor: "pointer" }}>{copied === "code" ? "COPIED" : "COPY CODE"}</button>
+                <button onClick={() => copy("msg")} style={{ flex: 1, height: 44, border: "1px solid var(--accent-flight)", borderRadius: 8, background: "var(--squawk-bg)", color: "var(--squawk-text)", fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", cursor: "pointer" }}>{copied === "msg" ? "COPIED" : "COPY MESSAGE"}</button>
+              </div>
+
+              {/* Regenerate */}
+              <button onClick={generate} style={{ width: "100%", height: 36, background: "transparent", border: "none", color: "var(--text-tertiary)", fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", cursor: "pointer", textAlign: "center" }}>REGENERATE</button>
+            </>
           )}
-          {viewers.length > 0 && (
-            <div className="mt-5 pt-4" style={{ borderTop: `1px solid ${C.border}` }}>
-              <p className="text-xs font-bold tracking-widest mb-3" style={{ color: C.textDim, fontFamily: FONT, fontSize: "8px", letterSpacing: "2px" }}>SHARED WITH</p>
-              {viewers.map(v => (<div key={v.id} className="flex items-center justify-between py-2"><div className="flex items-center gap-2.5"><div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: `${C.red}12`, color: C.red, fontSize: "9px" }}>{(v.claimed_by || "?").charAt(0)}</div><span className="text-xs" style={{ color: C.textMid, fontFamily: FONT }}>{v.claimed_by}</span></div><button onClick={() => revoke(v.id)} className="text-xs font-bold tracking-widest py-1 px-2" style={{ color: C.textDim, fontFamily: FONT, fontSize: "8px" }}>REVOKE</button></div>))}
+
+          {/* Divider + viewer list */}
+          <div style={{ borderTop: "1px solid var(--border-subtle)", margin: "12px 0" }} />
+          <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-tertiary)", marginBottom: 8 }}>TRACKING {"\u00B7"} {viewers.length} VIEWER{viewers.length !== 1 ? "S" : ""}</p>
+
+          {viewers.map((v, i) => (
+            <div key={v.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: i < viewers.length - 1 ? "1px solid var(--border-subtle)" : "none" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 28, height: 28, borderRadius: "50%", border: "1px solid var(--border-primary)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT, fontSize: "11px", fontWeight: 600, color: "var(--nav-text)" }}>{(v.claimed_by || "?").charAt(0).toUpperCase()}</div>
+                <div>
+                  <p style={{ fontFamily: FONT, fontSize: "11px", fontWeight: 500, color: "var(--text-heading)" }}>{v.claimed_by || "Unknown"}</p>
+                  <p style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)" }}>Linked {timeAgo(v.claimed_at)} ago</p>
+                </div>
+              </div>
+              {revokeConfirm === v.id ? (
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => setRevokeConfirm(null)} style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "1px", color: "var(--text-tertiary)", padding: "4px 8px", background: "transparent", border: "none", cursor: "pointer" }}>CANCEL</button>
+                  <button onClick={() => revoke(v.id)} style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "1px", color: "var(--danger-text)", padding: "4px 10px", border: "1px solid var(--danger-border)", borderRadius: 4, background: "var(--danger-bg)", cursor: "pointer" }}>REVOKE</button>
+                </div>
+              ) : (
+                <button onClick={() => setRevokeConfirm(v.id)} style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "1px", color: "var(--danger-text)", padding: "4px 10px", border: "1px solid var(--danger-border)", borderRadius: 4, background: "transparent", cursor: "pointer" }}>REVOKE</button>
+              )}
             </div>
-          )}
+          ))}
         </div>
       </div>
     </div>
@@ -378,30 +450,94 @@ function SquawkModal({ trip, onClose }) {
 
 function SquawkEntry({ onClaim }) {
   const [code, setCode] = useState(["", "", "", "", "", ""]);
-  const [status, setStatus] = useState(null);
+  const [status, setStatus] = useState(null); // null | "checking" | "success" | "error"
   const [error, setError] = useState(null);
+  const [claimedTrip, setClaimedTrip] = useState(null);
   const refs = useRef([]);
 
-  const handleChange = (i, val) => { const ch = val.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(-1); const n = [...code]; n[i] = ch; setCode(n); setStatus(null); setError(null); if (ch && i < 5) refs.current[i + 1]?.focus(); };
-  const handleKey = (i, e) => { if (e.key === "Backspace" && !code[i] && i > 0) { refs.current[i - 1]?.focus(); const n = [...code]; n[i - 1] = ""; setCode(n); } if (e.key === "Enter" && code.every(c => c)) submit(); };
-  const handlePaste = (e) => { e.preventDefault(); const p = e.clipboardData.getData("text").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6); const n = [...code]; for (let i = 0; i < 6; i++) n[i] = p[i] || ""; setCode(n); if (p.length === 6) refs.current[5]?.focus(); };
+  const handleChange = (i, val) => {
+    const ch = val.toUpperCase().replace(/[^A-Z2-9]/g, "").slice(-1);
+    const n = [...code]; n[i] = ch; setCode(n); setStatus(null); setError(null);
+    if (ch && i < 5) refs.current[i + 1]?.focus();
+  };
+  const handleKey = (i, e) => {
+    if (e.key === "Backspace" && !code[i] && i > 0) { refs.current[i - 1]?.focus(); const n = [...code]; n[i - 1] = ""; setCode(n); }
+    if (e.key === "Enter" && code.every(c => c)) submit();
+  };
+  const handlePaste = (e) => {
+    e.preventDefault();
+    const p = e.clipboardData.getData("text").toUpperCase().replace(/[^A-Z2-9]/g, "").slice(0, 6);
+    const n = [...code]; for (let i = 0; i < 6; i++) n[i] = p[i] || ""; setCode(n);
+    if (p.length === 6) refs.current[5]?.focus();
+  };
 
   const submit = async () => {
     if (code.some(c => !c)) return;
     setStatus("checking"); setError(null);
-    try { await api("/squawk/claim", { method: "POST", body: JSON.stringify({ code: code.join("") }) }); setStatus("success"); setTimeout(() => { onClaim(); setCode(["", "", "", "", "", ""]); setStatus(null); }, 1200); } catch (e) { setStatus(null); setError(e.message || "Invalid or expired code"); }
+    try {
+      const res = await api("/squawk/claim", { method: "POST", body: JSON.stringify({ code: code.join("") }) });
+      setClaimedTrip(res?.trip_title || "Trip");
+      setStatus("success");
+      setTimeout(() => { onClaim(); setCode(["", "", "", "", "", ""]); setStatus(null); setClaimedTrip(null); }, 3000);
+    } catch (e) {
+      setStatus("error"); setError("Invalid or expired code \u2014 ask for a new one");
+      setTimeout(() => { setCode(["", "", "", "", "", ""]); setStatus(null); setError(null); refs.current[0]?.focus(); }, 2000);
+    }
   };
 
   const full = code.every(c => c);
-  return (
-    <div className="rounded-lg border p-4 sm:p-5" style={{ background: C.surface, borderColor: C.border }}>
-      <p className="text-xs font-bold tracking-widest mb-1" style={{ color: C.textDim, fontFamily: FONT, fontSize: "9px", letterSpacing: "2px" }}>ENTER SQUAWK CODE</p>
-      <p className="text-xs mb-4" style={{ color: C.textGhost, fontFamily: FONT, fontSize: "10px" }}>Received a code? Enter it to follow a trip.</p>
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-        <div className="flex gap-1.5 justify-center">{code.map((ch, i) => <input key={i} ref={el => refs.current[i] = el} type="text" inputMode="text" autoCapitalize="characters" value={ch} onChange={e => handleChange(i, e.target.value)} onKeyDown={e => handleKey(i, e)} onPaste={i === 0 ? handlePaste : undefined} maxLength={1} className="w-11 h-13 sm:w-9 sm:h-11 text-center rounded border outline-none text-lg sm:text-base font-bold uppercase" style={{ background: ch ? `${C.red}06` : "rgba(0,0,0,0.3)", borderColor: ch ? `${C.red}25` : C.border, color: C.text, fontFamily: FONT, caretColor: C.red }} />)}</div>
-        <button onClick={submit} disabled={!full || status === "checking"} className="px-5 py-3 sm:py-2.5 rounded text-xs font-bold tracking-widest" style={{ background: status === "success" ? `${C.green}12` : full ? C.red : C.surface, color: status === "success" ? C.green : full ? "#fff" : C.textGhost, border: status === "success" ? `1px solid ${C.green}25` : "1px solid transparent", fontFamily: FONT, fontSize: "9px", letterSpacing: "1.5px" }}>{status === "checking" ? <span className="flex items-center justify-center gap-2"><Spinner />CHECKING</span> : status === "success" ? "LINKED" : "CLAIM"}</button>
+
+  // Success state
+  if (status === "success") {
+    return (
+      <div style={{ textAlign: "center", padding: "16px 0" }}>
+        <div style={{ width: 48, height: 48, borderRadius: "50%", border: "2px solid var(--accent-flight)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 10px" }}>
+          <span style={{ fontSize: "20px", color: "var(--accent-flight-bright)" }}>{"\u2713"}</span>
+        </div>
+        <p style={{ fontFamily: FONT, fontSize: "11px", letterSpacing: "3px", color: "var(--accent-flight-bright)", fontWeight: 500, marginBottom: 4 }}>LINKED</p>
+        <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{claimedTrip} added to your feed</p>
       </div>
-      {error && <p className="text-xs mt-2" style={{ color: C.red, fontFamily: FONT }}>{error}</p>}
+    );
+  }
+
+  return (
+    <div style={{ textAlign: "center", padding: "8px 0" }}>
+      <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-secondary)", marginBottom: 4 }}>ENTER SQUAWK CODE</p>
+      <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)", lineHeight: 1.5, marginBottom: 16 }}>Enter a 6-character code to track someone's trip in your feed.</p>
+
+      {/* Six input cells */}
+      <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 16 }}>
+        {code.map((ch, i) => (
+          <input
+            key={i} ref={el => refs.current[i] = el}
+            type="text" inputMode="text" autoCapitalize="characters"
+            value={ch} onChange={e => handleChange(i, e.target.value)}
+            onKeyDown={e => handleKey(i, e)} onPaste={i === 0 ? handlePaste : undefined}
+            maxLength={1}
+            style={{
+              width: 44, height: 52, textAlign: "center", fontFamily: FONT, fontSize: "22px", fontWeight: 700,
+              border: `1.5px solid ${status === "error" ? "var(--danger-text)" : ch ? "var(--accent-flight)" : "var(--border-primary)"}`,
+              borderRadius: 6, background: "var(--bg-card)",
+              color: ch ? "var(--accent-flight-bright)" : "var(--text-tertiary)",
+              outline: "none", caretColor: "var(--accent-flight)",
+              textTransform: "uppercase",
+            }}
+          />
+        ))}
+      </div>
+
+      {error && <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--danger-text)", marginBottom: 12 }}>{error}</p>}
+
+      {/* CLAIM button */}
+      <button onClick={submit} disabled={!full || status === "checking"}
+        style={{
+          width: "100%", height: 48, borderRadius: 10, fontFamily: FONT, fontSize: "11px", letterSpacing: "3px", fontWeight: 500, cursor: full ? "pointer" : "default",
+          background: full ? "var(--squawk-bg)" : "var(--bg-surface)",
+          color: full ? "var(--squawk-text)" : "var(--text-tertiary)",
+          border: full ? "none" : "1px solid var(--border-subtle)",
+        }}>
+        {status === "checking" ? <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}><Spinner /> CHECKING</span> : "CLAIM"}
+      </button>
     </div>
   );
 }
@@ -1841,29 +1977,214 @@ function CreatePage() {
 
 function SharedPage({ tripId }) {
   const { navigate } = useRouter();
+  const { mode } = useTheme();
   const [trip, setTrip] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [activeLeg, setActiveLeg] = useState(0);
 
   useEffect(() => { setLoading(true); api(`/trips/${tripId}`).then(t => setTrip(mapTrip(t))).catch(() => setTrip(null)).finally(() => setLoading(false)); }, [tripId]);
+  useEffect(() => { if (trip) { const li = trip.legs?.findIndex(l => l.status === "in_air" || l.status === "in_transit"); setActiveLeg(li >= 0 ? li : 0); } }, [trip?.id]);
 
   if (loading) return <LoadingScreen />;
-  if (!trip) return <div className="text-center py-12"><p className="text-xs" style={{ color: C.textDim, fontFamily: FONT }}>Trip not found</p></div>;
+  if (!trip) return <div className="text-center py-12"><p style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>Trip not found</p></div>;
 
   const presence = computePresence(trip);
   const travelerName = trip.traveler?.name || "Traveler";
+  const totalLegs = (trip.legs || []).length;
+  const tripDays = trip.start_date && trip.end_date ? Math.max(1, Math.round((new Date(trip.end_date) - new Date(trip.start_date)) / 86400000)) : null;
+
+  // Signal status config
+  const signalCfg = {
+    pre: { badge: "SCHEDULED", badgeColor: "var(--accent-countdown)", borderColor: "var(--accent-countdown)" },
+    transit: { badge: "EN ROUTE", badgeColor: "var(--accent-flight-bright)", borderColor: "var(--accent-flight)" },
+    dwelling: { badge: "ON GROUND", badgeColor: "var(--accent-hotel)", borderColor: "var(--accent-hotel)" },
+    post: { badge: "COMPLETE", badgeColor: "var(--accent-countdown)", borderColor: "var(--accent-countdown)" },
+  };
+  const signal = signalCfg[presence.mode] || signalCfg.post;
+
+  // Narrative for shared view (privacy-respecting)
+  const getSharedNarrative = () => {
+    if (presence.mode === "transit") {
+      const liveLeg = trip.legs?.find(l => l.status === "in_air" || l.status === "in_transit");
+      if (liveLeg) {
+        const arrTime = formatTime(liveLeg.arrive_time);
+        return { main: `Currently airborne. ${liveLeg.origin?.code || liveLeg.origin?.city} \u2192 ${liveLeg.destination?.code || liveLeg.destination?.city} \u00B7 ${liveLeg.carrier} ${liveLeg.vehicle_number || ""}`.trim(), sub: `Lands at ${arrTime} local.` };
+      }
+      return { main: presence.narrative, sub: "" };
+    }
+    if (presence.mode === "dwelling") {
+      const hotelLeg = trip.legs?.find(l => l.type === "hotel" && new Date(l.depart_time).getTime() <= Date.now() && new Date(l.arrive_time).getTime() >= Date.now());
+      const city = hotelLeg?.origin?.city || "destination";
+      return { main: `Traveler is in the ${city} area.`, sub: "" };
+    }
+    if (presence.mode === "pre") {
+      const first = trip.legs?.[0];
+      const d = first ? Math.ceil((new Date(first.depart_time).getTime() - Date.now()) / 86400000) : 0;
+      const fromCity = first?.origin?.code || first?.origin?.city || "";
+      return { main: `Traveler departs ${d === 0 ? "today" : d === 1 ? "tomorrow" : `in ${d} days`}${fromCity ? ` from ${fromCity}` : ""}.`, sub: "" };
+    }
+    return { main: "Traveler has returned home. Flight plan archived.", sub: "" };
+  };
+  const narrative = getSharedNarrative();
+
+  // Inline route for shared view — codes only, no durations
+  const sharedRouteItems = (() => {
+    const items = [];
+    let lastCode = null;
+    for (const leg of (trip.legs || [])) {
+      if (leg.type === "hotel") { if (items.length > 0 && items[items.length - 1].t === "c") items.push({ t: "h" }); continue; }
+      const oc = leg.origin?.code || leg.origin?.city?.slice(0, 3)?.toUpperCase() || "?";
+      const dc = leg.destination?.code || leg.destination?.city?.slice(0, 3)?.toUpperCase() || "?";
+      if (oc !== lastCode) { if (items.length > 0 && items[items.length - 1].t !== "h") items.push({ t: "f" }); items.push({ t: "c", code: oc }); }
+      items.push({ t: "f" });
+      items.push({ t: "c", code: dc });
+      lastCode = dc;
+    }
+    return items;
+  })();
 
   return (
-    <div>
-      <button onClick={() => navigate("dashboard")} className="text-xs font-bold tracking-widest mb-6 block" style={{ color: C.textDim, fontFamily: FONT, fontSize: "10px" }}>← BACK</button>
-      <div className="flex items-center gap-3 mb-6"><div className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold shrink-0" style={{ background: `${C.red}15`, color: C.red }}>{travelerName.charAt(0)}</div><div><p className="text-xs font-bold" style={{ color: C.text, fontFamily: FONT }}>{travelerName.toUpperCase()}'S TRIP</p></div></div>
-      <h1 className="text-xl sm:text-2xl font-bold mb-1" style={{ color: C.text, fontFamily: FONT }}>{trip.title.toUpperCase()}</h1>
-      <p className="text-xs mb-6" style={{ color: C.textDim, fontFamily: FONT, fontSize: "10px" }}>{formatDateRange(trip.start_date, trip.end_date)}</p>
-      <div className="rounded border p-4 sm:p-5 mb-6" style={{ background: presence.mode === "transit" ? `${C[presence.legType]}06` : C.surface, borderColor: presence.mode === "transit" ? `${C[presence.legType]}25` : C.border }}><div className="flex items-start gap-3"><span className="text-2xl">{presence.emoji}</span><div className="flex-1 min-w-0"><p className="text-sm font-bold" style={{ color: C.text, fontFamily: FONT }}>{presence.narrative}</p>{presence.subtext && <p className="text-xs mt-1" style={{ color: C.textMid, fontFamily: FONT }}>{presence.subtext}</p>}{presence.progress != null && <div className="flex items-center gap-3 mt-3"><div className="flex-1 h-1 rounded-full overflow-hidden" style={{ background: C.border }}><div className="h-full rounded-full" style={{ width: `${presence.progress * 100}%`, background: C[presence.legType] || C.red }} /></div><span className="text-xs font-bold tabular-nums" style={{ color: C.textDim, fontFamily: FONT, fontSize: "10px" }}>{Math.round(presence.progress * 100)}%</span></div>}</div></div></div>
-      <h2 className="text-xs font-bold tracking-widest mb-4" style={{ color: C.textDim, fontFamily: FONT, fontSize: "9px", letterSpacing: "2px" }}>ITINERARY</h2>
-      {trip.legs?.map((leg, i) => { const color = C[leg.type], isPast = leg.status === "completed", isLive = leg.status === "in_air" || leg.status === "in_transit"; return (
-        <div key={leg.id} className="flex gap-3"><div className="flex flex-col items-center" style={{ width: 20 }}><div className="relative flex items-center justify-center" style={{ width: 20, height: 20, flexShrink: 0 }}>{isLive && <span className="absolute inset-0 rounded-full animate-ping" style={{ background: color, opacity: 0.15 }} />}<div className="rounded-full" style={{ width: isLive ? 10 : 6, height: isLive ? 10 : 6, background: isPast ? C.textDim : isLive ? color : C.textGhost }} /></div>{i < trip.legs.length - 1 && <div className="flex-1 w-px" style={{ background: C.border, minHeight: 20 }} />}</div>
-          <div className="pb-4 flex-1 min-w-0"><span className="text-xs font-bold" style={{ color: isPast ? C.textDim : color, fontFamily: FONT, fontSize: "9px", letterSpacing: "1.5px" }}>{leg.type.toUpperCase()}</span>{isLive && <span className="text-xs font-bold ml-2 px-1.5 py-0.5 rounded" style={{ background: `${color}12`, color, fontFamily: FONT, fontSize: "8px" }}>NOW</span>}{leg.type === "hotel" ? <p className="text-xs mt-0.5" style={{ color: isPast ? C.textDim : C.textMid, fontFamily: FONT }}>{leg.origin?.city} · {formatDate(leg.depart_time)} — {formatDate(leg.arrive_time)}</p> : <p className="text-xs mt-0.5 truncate" style={{ color: isPast ? C.textDim : C.textMid, fontFamily: FONT }}>{leg.origin?.code || leg.origin?.city} → {leg.destination?.code || leg.destination?.city} · {leg.carrier} {leg.vehicle_number || ""}</p>}</div></div>); })}
-      <div className="mt-8 pt-4 text-center" style={{ borderTop: `1px solid ${C.border}` }}><p className="text-xs tracking-widest" style={{ color: C.textGhost, fontFamily: FONT, fontSize: "9px", letterSpacing: "3px" }}>TRIPTRACK</p></div>
+    <div className="min-h-[calc(100vh-48px)] sm:min-h-[calc(100vh-53px)]" style={{ background: "var(--bg-primary)" }}>
+      {/* Nav bar */}
+      <div className="flex items-center justify-between px-4 py-2">
+        <button onClick={() => navigate("dashboard")} style={{ width: 44, height: 44, border: "1px solid var(--nav-border)", borderRadius: 8, background: "var(--nav-bg)", color: "var(--nav-text-active)", fontFamily: FONT, fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center" }}>{"\u2190"}</button>
+        <span style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "3px", color: "var(--text-tertiary)" }}>TRACKING</span>
+        <div style={{ width: 44 }} />
+      </div>
+
+      {/* Traveler identity */}
+      <div style={{ padding: "14px 16px 8px", display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ width: 32, height: 32, borderRadius: "50%", border: "1px solid var(--border-primary)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT, fontSize: "13px", fontWeight: 600, color: "var(--nav-text)", flexShrink: 0 }}>{travelerName.charAt(0).toUpperCase()}</div>
+        <div>
+          <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--text-tertiary)" }}>TRAVELER'S FLIGHT PLAN</p>
+          <p style={{ fontFamily: FONT, fontSize: "16px", fontWeight: 600, color: "var(--text-heading)" }}>{trip.title}</p>
+        </div>
+      </div>
+
+      {/* Signal status card */}
+      <div style={{ margin: "4px 16px 10px", border: `1px solid ${signal.borderColor}`, borderRadius: 6, padding: 12, background: "var(--bg-card)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <span style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--accent-flight)" }}>SIGNAL STATUS</span>
+          <span style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "1px", padding: "2px 8px", borderRadius: 3, color: signal.badgeColor, border: `1px solid ${signal.borderColor}`, background: "var(--bg-card)" }}>{signal.badge}</span>
+        </div>
+        <p style={{ fontFamily: FONT, fontSize: "13px", color: "var(--text-heading)", lineHeight: 1.4 }}>{narrative.main}</p>
+        {narrative.sub && <p style={{ fontFamily: FONT, fontSize: "13px", color: "var(--text-secondary)", lineHeight: 1.4 }}>{narrative.sub}</p>}
+        {presence.progress != null && (
+          <div className="flex items-center gap-3 mt-3">
+            <div className="flex-1 h-1 rounded-full overflow-hidden" style={{ background: "var(--border-primary)" }}>
+              <div className="h-full rounded-full" style={{ width: `${presence.progress * 100}%`, background: "var(--accent-flight)" }} />
+            </div>
+            <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", fontWeight: 700 }}>{Math.round(presence.progress * 100)}%</span>
+          </div>
+        )}
+      </div>
+
+      {/* Map — shared view (no coordinates overlay, no distance label) */}
+      <div style={{ height: 220, margin: "0 16px", borderRadius: 8, overflow: "hidden", border: "1px solid var(--border-primary)" }}>
+        <TripMap trip={trip} activeLegIndex={activeLeg} mode={mode} />
+      </div>
+
+      {/* Date range */}
+      <div style={{ padding: "10px 16px" }}>
+        <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", letterSpacing: "0.5px" }}>{formatDateRange(trip.start_date, trip.end_date)}</p>
+      </div>
+
+      {/* Route summary bar (codes only, no durations) */}
+      {sharedRouteItems.length > 0 && (
+        <div style={{ padding: "0 16px 10px" }}>
+          <div className="flex items-center gap-0.5 overflow-x-auto" style={{ paddingBottom: 2 }}>
+            {sharedRouteItems.map((it, i) => it.t === "c"
+              ? <span key={i} style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 700, color: "var(--accent-flight-bright)", letterSpacing: "1px", flexShrink: 0 }}>{it.code}</span>
+              : it.t === "f"
+                ? <span key={i} style={{ width: 16, height: 0, borderTop: "1px solid var(--border-primary)", display: "inline-block", flexShrink: 0 }} />
+                : <span key={i} style={{ width: 12, height: 0, borderTop: "1px dashed var(--accent-hotel)", opacity: 0.5, display: "inline-block", flexShrink: 0 }} />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Itinerary timeline */}
+      <div style={{ padding: "0 16px 16px" }}>
+        <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-secondary)", fontWeight: 700, marginBottom: 10 }}>ITINERARY</p>
+
+        {trip.legs?.map((leg, i) => {
+          const isHotel = leg.type === "hotel";
+          const isLive = leg.status === "in_air" || leg.status === "in_transit";
+          const stripColors = { flight: "var(--strip-flight)", hotel: "var(--strip-hotel)", train: "#d4628a", bus: "#7c6bb4" };
+          const stripColor = stripColors[leg.type] || "var(--strip-flight)";
+          const cardBg = isHotel ? "var(--bg-card-hotel)" : "var(--bg-card)";
+          const cardBorder = isHotel ? "var(--border-hotel)" : "var(--border-primary)";
+          const nights = leg.metadata?.nights || (leg.depart_time && leg.arrive_time && isHotel ? Math.max(1, Math.round((new Date(leg.arrive_time) - new Date(leg.depart_time)) / 86400000)) : 0);
+          const city = leg.origin?.city || "Unknown";
+
+          return (
+            <div key={leg.id} className="flex">
+              {/* Timeline rail */}
+              <div className="flex flex-col items-center" style={{ width: 28 }}>
+                <div style={{ width: isHotel ? 8 : 10, height: isHotel ? 8 : 10, borderRadius: "50%", border: `2px solid ${isHotel ? "var(--strip-hotel)" : "var(--timeline-dot-border)"}`, background: "var(--timeline-dot-bg)", flexShrink: 0 }} />
+                {i < trip.legs.length - 1 && <div style={{ width: 1.5, flex: 1, background: "var(--timeline-rail)", minHeight: 20 }} />}
+              </div>
+
+              {/* Card */}
+              <div className="flex-1 mb-2 ml-2" style={{ borderLeft: `3px solid ${stripColor}`, borderRadius: 4, padding: 12, background: cardBg, border: `1px solid ${cardBorder}`, borderLeftWidth: 3, borderLeftColor: stripColor, borderLeftStyle: "solid" }}>
+                {isHotel ? (
+                  <>
+                    <div className="flex items-center justify-between mb-1">
+                      <span style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: "var(--accent-hotel)", fontWeight: 700 }}>GROUND STOP</span>
+                      <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{formatDate(leg.depart_time)}{leg.arrive_time ? ` \u2013 ${formatDate(leg.arrive_time)}` : ""}</span>
+                    </div>
+                    <p style={{ fontFamily: FONT, fontSize: "12px", color: "var(--accent-hotel-dim)", fontStyle: "italic", marginBottom: 4 }}>Accommodation details private</p>
+                    <p style={{ fontFamily: FONT, fontSize: "8px", color: "var(--accent-hotel-dim)" }}>
+                      {nights ? `${nights} NIGHTS` : ""}{nights && city ? " \u00B7 " : ""}{city ? `${city.toUpperCase()} AREA` : ""}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: stripColor, fontWeight: 700 }}>{leg.type.toUpperCase()} {"\u00B7"} {leg.vehicle_number || leg.carrier}</span>
+                        {isLive && <span className="inline-flex items-center gap-1"><span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--accent-flight)" }} /><span className="relative inline-flex rounded-full h-1.5 w-1.5" style={{ background: "var(--accent-flight)" }} /></span><span style={{ fontFamily: FONT, fontSize: "8px", fontWeight: 700, color: "var(--accent-flight-bright)" }}>LIVE</span></span>}
+                      </div>
+                      <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{formatDate(leg.depart_time)}</span>
+                    </div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span style={{ fontFamily: FONT, fontSize: "24px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "2px" }}>{leg.origin?.code || leg.origin?.city?.slice(0, 3)?.toUpperCase() || "?"}</span>
+                      <div className="flex flex-col items-center flex-1 mx-3">
+                        <div style={{ width: "100%", height: 0, borderTop: "1px solid var(--border-subtle)" }} />
+                      </div>
+                      <span style={{ fontFamily: FONT, fontSize: "24px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "2px" }}>{leg.destination?.code || leg.destination?.city?.slice(0, 3)?.toUpperCase() || "?"}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{formatTime(leg.depart_time)}</span>
+                      <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{formatTime(leg.arrive_time)}</span>
+                    </div>
+                    <div className="pt-2 mt-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+                      <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{[leg.carrier, formatTime(leg.depart_time) + " \u2192 " + formatTime(leg.arrive_time)].filter(Boolean).join(" \u00B7 ")}</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Stats footer (limited: legs + days only) */}
+      <div style={{ padding: "16px", borderTop: "1px solid var(--border-subtle)" }}>
+        <div style={{ display: "flex", justifyContent: "center", gap: 40 }}>
+          <div style={{ textAlign: "center" }}>
+            <p style={{ fontFamily: FONT, fontSize: "18px", fontWeight: 700, color: "var(--stats-value)" }}>{totalLegs}</p>
+            <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--stats-label)" }}>SEGMENTS</p>
+          </div>
+          {tripDays && (
+            <div style={{ textAlign: "center" }}>
+              <p style={{ fontFamily: FONT, fontSize: "18px", fontWeight: 700, color: "var(--stats-value)" }}>{tripDays}</p>
+              <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--stats-label)" }}>DURATION</p>
+            </div>
+          )}
+        </div>
+        <p className="text-center mt-4" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "3px", color: "var(--text-tertiary)" }}>TRIPTRACK</p>
+      </div>
     </div>
   );
 }
@@ -1930,7 +2251,7 @@ function TripTrackApp() {
   if (authLoading) return <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg-primary)" }}><Spinner /></div>;
   if (!user) return <LoginPage />;
 
-  const isFullWidth = route.page === "detail" || route.page === "dashboard";
+  const isFullWidth = route.page === "detail" || route.page === "dashboard" || route.page === "shared";
   return (
     <RouterContext.Provider value={{ route, navigate }}>
       <div className="min-h-screen" style={{ background: "var(--bg-primary)", fontFamily: FONT }}>
