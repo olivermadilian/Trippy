@@ -273,7 +273,7 @@ function getTripStatus(trip) { const now = new Date(), s = new Date(trip.start_d
 function formatDateRange(s, e) { if (!s || !e) return ""; const sd = new Date(s + "T00:00:00"), ed = new Date(e + "T00:00:00"), o = { month: "short", day: "numeric" }; return `${sd.toLocaleDateString("en-US", o)} — ${ed.toLocaleDateString("en-US", o)}, ${ed.getFullYear()}`; }
 function formatTime(iso) { return iso ? new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }) : "—"; }
 function formatDate(iso) { return iso ? new Date(iso).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : ""; }
-function formatDuration(d, a) { if (!d || !a) return ""; const ms = new Date(a) - new Date(d), h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000); return h > 0 ? `${h}H ${m}M` : `${m}M`; }
+function formatDuration(d, a) { if (!d || !a) return ""; const ms = new Date(a) - new Date(d); if (ms <= 0) return ""; const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000); return h > 0 ? `${h}H ${m}M` : `${m}M`; }
 function interpolateGC(p1, p2, n = 60) { const i = d3.geoInterpolate(p1, p2); return Array.from({ length: n + 1 }, (_, k) => i(k / n)); }
 function getLivePos(leg) { if (leg.status !== "in_air" && leg.status !== "in_transit") return null; const dep = new Date(leg.actual_depart || leg.depart_time).getTime(), arr = new Date(leg.arrive_time).getTime(), prog = Math.max(0, Math.min(1, (Date.now() - dep) / (arr - dep))), pos = d3.geoInterpolate([leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat])(prog); return { lng: pos[0], lat: pos[1], progress: prog }; }
 
@@ -986,7 +986,7 @@ function computeTripStats(legs) {
   (legs || []).forEach(l => {
     if (l.type !== "hotel" && l.origin?.lat != null && l.destination?.lat != null) {
       totalNM += haversineNM(l.origin.lat, l.origin.lng, l.destination.lat, l.destination.lng);
-      if (l.depart_time && l.arrive_time) airMs += new Date(l.arrive_time) - new Date(l.depart_time);
+      if (l.depart_time && l.arrive_time) { const diff = new Date(l.arrive_time) - new Date(l.depart_time); if (diff > 0) airMs += diff; }
     }
     if (l.type === "hotel") hotelNights += l.metadata?.nights || (l.depart_time && l.arrive_time ? Math.max(1, Math.round((new Date(l.arrive_time) - new Date(l.depart_time)) / 86400000)) : 1);
   });
@@ -1603,7 +1603,7 @@ function CreatePage() {
   const [fOrigin, setFOrigin] = useState(""); const [fDest, setFDest] = useState("");
   const [fDepart, setFDepart] = useState(""); const [fArrive, setFArrive] = useState("");
   const [fCarrier, setFCarrier] = useState(""); const [fFlightNo, setFFlightNo] = useState("");
-  const [fDate, setFDate] = useState("");
+  const [fDate, setFDate] = useState(""); const [fArriveDate, setFArriveDate] = useState("");
   // Hotel
   const [hName, setHName] = useState(""); const [hPlace, setHPlace] = useState(null);
   const [hCheckIn, setHCheckIn] = useState(""); const [hCheckOut, setHCheckOut] = useState("");
@@ -1646,7 +1646,7 @@ function CreatePage() {
 
   const resetBuilder = () => {
     setBFN(""); setBLoading(false); setBAF(null); setBErr(null);
-    setFOrigin(""); setFDest(""); setFDepart(""); setFArrive(""); setFCarrier(""); setFFlightNo(""); setFDate(tripStart || "");
+    setFOrigin(""); setFDest(""); setFDepart(""); setFArrive(""); setFCarrier(""); setFFlightNo(""); setFDate(tripStart || ""); setFArriveDate("");
     setHName(""); setHPlace(null); setHCheckIn(tripStart || ""); setHCheckOut(tripEnd || ""); setHLocation("");
     setTOrigin(""); setTDest(""); setTOPlace(null); setTDPlace(null); setTDepart(""); setTArrive(""); setTOperator(""); setTNumber(""); setTDate(tripStart || "");
     setValErrors([]);
@@ -1663,7 +1663,7 @@ function CreatePage() {
       setFOrigin(af.origin.code || "");
       setFDest(af.destination.code || "");
       if (af.origin.scheduled) { const d = new Date(af.origin.scheduled); setFDepart(d.toTimeString().slice(0, 5)); setFDate(d.toISOString().split("T")[0]); }
-      if (af.destination.scheduled) { const d = new Date(af.destination.scheduled); setFArrive(d.toTimeString().slice(0, 5)); }
+      if (af.destination.scheduled) { const d = new Date(af.destination.scheduled); setFArrive(d.toTimeString().slice(0, 5)); setFArriveDate(d.toISOString().split("T")[0]); }
       setFCarrier(af.carrier || "");
       setFFlightNo(af.callsign || "");
     } catch { setBErr("Flight not found \u2014 try another callsign or enter manually"); }
@@ -1678,7 +1678,7 @@ function CreatePage() {
         origin: { code: fOrigin.toUpperCase(), city: fOrigin, lat: 0, lng: 0 },
         destination: { code: fDest.toUpperCase(), city: fDest, lat: 0, lng: 0 },
         depart_time: fDate && fDepart ? `${fDate}T${fDepart}:00Z` : null,
-        arrive_time: fDate && fArrive ? `${fDate}T${fArrive}:00Z` : null,
+        arrive_time: fDate && fArrive ? (() => { const ad = fArriveDate || (fArrive < fDepart ? (() => { const d = new Date(`${fDate}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().split("T")[0]; })() : fDate); return `${ad}T${fArrive}:00Z`; })() : null,
         carrier: fCarrier, vehicle_number: fFlightNo,
         metadata: bAF ? { terminal: bAF.origin.terminal, gate: bAF.origin.gate } : {},
       };
