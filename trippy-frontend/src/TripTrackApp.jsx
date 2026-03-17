@@ -654,7 +654,7 @@ function SquawkEntry({ onClaim }) {
 // ═══════════════════════════════════════════════════════════════════
 
 function DashboardMap({ trips, filter, heroTripId }) {
-  const svgRef = useRef(null), containerRef = useRef(null);
+  const svgRef = useRef(null), containerRef = useRef(null), zoomRef = useRef(null);
   const { mode } = useTheme();
 
   const draw = useCallback(() => {
@@ -685,16 +685,20 @@ function DashboardMap({ trips, filter, heroTripId }) {
       : d3.geoMercator().center([-98, 38]).scale(w / 6).translate([w / 2, h / 2]);
     const path = d3.geoPath(proj);
 
+    // Fixed background
     svg.append("rect").attr("width", w).attr("height", h).attr("fill", "var(--bg-map)");
-    svg.append("rect").attr("width", "100%").attr("height", "100%").attr("fill", "url(#dash-grid)");
+    svg.append("rect").attr("width", w * 3).attr("height", h * 3).attr("x", -w).attr("y", -h).attr("fill", "url(#dash-grid)");
+
+    // Zoomable content group
+    const g = svg.append("g").attr("class", "map-content");
 
     const land = topojson.feature(worldData, worldData.objects.land);
     const borders = topojson.mesh(worldData, worldData.objects.countries, (a, b) => a !== b);
     if (isDay) {
-      svg.append("path").datum(land).attr("d", path).attr("fill", "var(--map-land)").attr("stroke", "var(--map-land-stroke)").attr("stroke-width", 0.8);
-      svg.append("path").datum(borders).attr("d", path).attr("fill", "none").attr("stroke", "var(--map-land-stroke)").attr("stroke-width", 0.5);
+      g.append("path").datum(land).attr("d", path).attr("fill", "var(--map-land)").attr("stroke", "var(--map-land-stroke)").attr("stroke-width", 0.8);
+      g.append("path").datum(borders).attr("d", path).attr("fill", "none").attr("stroke", "var(--map-land-stroke)").attr("stroke-width", 0.5);
     } else {
-      svg.append("path").datum(borders).attr("d", path).attr("fill", "none").attr("stroke", "var(--map-grid)").attr("stroke-width", 0.5);
+      g.append("path").datum(borders).attr("d", path).attr("fill", "none").attr("stroke", "var(--map-grid)").attr("stroke-width", 0.5);
     }
 
     // Ghost arcs (non-hero trips)
@@ -704,7 +708,7 @@ function DashboardMap({ trips, filter, heroTripId }) {
         if (leg.type === "hotel" || leg.origin?.lat == null || leg.destination?.lat == null) return;
         const coords = leg.type === "flight" ? interpolateGC([leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat]) : [[leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat]];
         const lineGen = d3.line().x(d => proj(d)[0]).y(d => proj(d)[1]).curve(leg.type === "flight" ? d3.curveBasis : d3.curveLinear);
-        svg.append("path").datum(coords).attr("d", lineGen).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 1).attr("opacity", 0.13);
+        g.append("path").datum(coords).attr("d", lineGen).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 1).attr("opacity", 0.13);
       });
       const gc = new Map();
       trip.legs?.forEach(l => {
@@ -714,8 +718,8 @@ function DashboardMap({ trips, filter, heroTripId }) {
       });
       gc.forEach(c => {
         const [x, y] = proj(c.coords);
-        svg.append("circle").attr("cx", x).attr("cy", y).attr("r", 2).attr("fill", "var(--map-arc)").attr("opacity", 0.18);
-        if (c.code) svg.append("text").attr("x", x).attr("y", y - 8).attr("text-anchor", "middle").attr("fill", "var(--map-label)").attr("font-size", "7px").attr("font-family", FONT).attr("opacity", 0.18).text(c.code);
+        g.append("circle").attr("cx", x).attr("cy", y).attr("r", 2).attr("fill", "var(--map-arc)").attr("opacity", 0.18);
+        if (c.code) g.append("text").attr("x", x).attr("y", y - 8).attr("text-anchor", "middle").attr("fill", "var(--map-label)").attr("font-size", "7px").attr("font-family", FONT).attr("opacity", 0.18).text(c.code);
       });
     });
 
@@ -725,8 +729,8 @@ function DashboardMap({ trips, filter, heroTripId }) {
       heroTrip.legs?.forEach(leg => {
         if (leg.type === "hotel" && leg.origin?.lat != null) {
           const [hx, hy] = proj([leg.origin.lng, leg.origin.lat]);
-          svg.append("circle").attr("cx", hx).attr("cy", hy).attr("r", 22).attr("fill", "var(--map-dwell-glow)");
-          svg.append("circle").attr("cx", hx).attr("cy", hy).attr("r", 16).attr("fill", "var(--accent-hotel)").attr("opacity", 0.08);
+          g.append("circle").attr("cx", hx).attr("cy", hy).attr("r", 22).attr("fill", "var(--map-dwell-glow)");
+          g.append("circle").attr("cx", hx).attr("cy", hy).attr("r", 16).attr("fill", "var(--accent-hotel)").attr("opacity", 0.08);
         }
       });
 
@@ -736,10 +740,10 @@ function DashboardMap({ trips, filter, heroTripId }) {
         const coords = leg.type === "flight" ? interpolateGC([leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat]) : [[leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat]];
         const lineGen = d3.line().x(d => proj(d)[0]).y(d => proj(d)[1]).curve(leg.type === "flight" ? d3.curveBasis : d3.curveLinear);
         if (isFirst) {
-          svg.append("path").datum(coords).attr("d", lineGen).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 2.5).attr("stroke-linecap", "round").attr("opacity", 0.7);
+          g.append("path").datum(coords).attr("d", lineGen).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 2.5).attr("stroke-linecap", "round").attr("opacity", 0.7);
           isFirst = false;
         } else {
-          svg.append("path").datum(coords).attr("d", lineGen).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 1.2).attr("stroke-dasharray", "5,3").attr("opacity", 0.25);
+          g.append("path").datum(coords).attr("d", lineGen).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 1.2).attr("stroke-dasharray", "5,3").attr("opacity", 0.25);
         }
       });
 
@@ -751,9 +755,9 @@ function DashboardMap({ trips, filter, heroTripId }) {
       });
       hc.forEach(city => {
         const [x, y] = proj(city.coords);
-        svg.append("circle").attr("cx", x).attr("cy", y).attr("r", 7).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 0.5).attr("opacity", 0.4);
-        svg.append("circle").attr("cx", x).attr("cy", y).attr("r", 3.5).attr("fill", "var(--map-dot)");
-        svg.append("text").attr("x", x).attr("y", y - 12).attr("text-anchor", "middle").attr("fill", "var(--map-label)").attr("font-size", "9px").attr("font-family", FONT).attr("font-weight", 600).text(city.code || city.city);
+        g.append("circle").attr("cx", x).attr("cy", y).attr("r", 7).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 0.5).attr("opacity", 0.4);
+        g.append("circle").attr("cx", x).attr("cy", y).attr("r", 3.5).attr("fill", "var(--map-dot)");
+        g.append("text").attr("x", x).attr("y", y - 12).attr("text-anchor", "middle").attr("fill", "var(--map-label)").attr("font-size", "9px").attr("font-family", FONT).attr("font-weight", 600).text(city.code || city.city);
       });
 
       const liveLeg = heroTrip.legs?.find(l => l.status === "in_air" || l.status === "in_transit");
@@ -761,25 +765,32 @@ function DashboardMap({ trips, filter, heroTripId }) {
         const lp = getLivePos(liveLeg);
         if (lp) {
           const [px, py] = proj([lp.lng, lp.lat]);
-          const ping = svg.append("circle").attr("cx", px).attr("cy", py).attr("r", 5).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 1.5).attr("opacity", 0);
+          const ping = g.append("circle").attr("cx", px).attr("cy", py).attr("r", 5).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 1.5).attr("opacity", 0);
           (function anim() { ping.attr("r", 5).attr("opacity", 0.6).transition().duration(1800).ease(d3.easeQuadOut).attr("r", 22).attr("opacity", 0).on("end", anim); })();
-          svg.append("circle").attr("cx", px).attr("cy", py).attr("r", 5).attr("fill", "var(--map-arc)").attr("filter", "url(#dash-glow)");
-          svg.append("circle").attr("cx", px).attr("cy", py).attr("r", 2).attr("fill", "var(--bg-primary)");
+          g.append("circle").attr("cx", px).attr("cy", py).attr("r", 5).attr("fill", "var(--map-arc)").attr("filter", "url(#dash-glow)");
+          g.append("circle").attr("cx", px).attr("cy", py).attr("r", 2).attr("fill", "var(--bg-primary)");
         }
       }
     }
 
+    // Fixed label (not zoomable)
     const isPast = filter === "completed";
     const cnt = trips.length;
     const countText = cnt === 0 ? "NO FLIGHT PLANS FILED" : `${cnt} FLIGHT PLAN${cnt !== 1 ? "S" : ""} ${isPast ? "ARCHIVED" : "FILED"}`;
     svg.append("text").attr("x", w / 2).attr("y", h - 10).attr("text-anchor", "middle").attr("fill", "var(--map-distance)").attr("font-size", "8px").attr("font-family", FONT).attr("letter-spacing", "2px").text(countText);
+
+    // Zoom behavior
+    const zoom = d3.zoom().scaleExtent([0.5, 6]).on("zoom", (event) => { g.attr("transform", event.transform); });
+    svg.call(zoom);
+    svg.on("dblclick.zoom", null);
+    zoomRef.current = zoom;
   }, [trips, filter, heroTripId, mode]);
 
   useEffect(() => { draw(); const h = () => draw(); window.addEventListener("resize", h); return () => window.removeEventListener("resize", h); }, [draw]);
 
   return (
-    <div ref={containerRef} className="w-full" style={{ height: 195, background: "var(--bg-map)", borderBottom: mode === "day" ? "1px solid var(--border-subtle)" : "none" }}>
-      <svg ref={svgRef} className="w-full h-full" />
+    <div ref={containerRef} className="w-full" style={{ height: 195, background: "var(--bg-map)", borderBottom: mode === "day" ? "1px solid var(--border-subtle)" : "none", touchAction: "none" }}>
+      <svg ref={svgRef} className="w-full h-full" style={{ cursor: "grab" }} />
     </div>
   );
 }
@@ -1169,7 +1180,7 @@ function RouteSummaryBar({ legs }) {
 // ═══════════════════════════════════════════════════════════════════
 
 function TripMap({ trip, activeLegIndex, mode }) {
-  const svgRef = useRef(null), containerRef = useRef(null);
+  const svgRef = useRef(null), containerRef = useRef(null), zoomRef = useRef(null);
   const draw = useCallback(() => {
     const el = containerRef.current, svg = d3.select(svgRef.current); if (!el) return;
     const w = el.clientWidth, h = el.clientHeight; svg.attr("width", w).attr("height", h).selectAll("*").remove();
@@ -1179,41 +1190,41 @@ function TripMap({ trip, activeLegIndex, mode }) {
     glow.append("feGaussianBlur").attr("stdDeviation", "4").attr("result", "b");
     const gm = glow.append("feMerge"); gm.append("feMergeNode").attr("in", "b"); gm.append("feMergeNode").attr("in", "SourceGraphic");
 
-    // Radar grid pattern
     const gridSize = 34;
     defs.append("pattern").attr("id", "radar-grid").attr("width", gridSize).attr("height", gridSize).attr("patternUnits", "userSpaceOnUse")
       .append("path").attr("d", `M ${gridSize} 0 L 0 0 0 ${gridSize}`).attr("fill", "none").attr("stroke", "var(--map-grid)").attr("stroke-width", 0.5);
 
+    // Fixed background + grid (doesn't pan/zoom)
+    svg.append("rect").attr("width", w).attr("height", h).attr("fill", "var(--bg-map)");
+    svg.append("rect").attr("width", w * 3).attr("height", h * 3).attr("x", -w).attr("y", -h).attr("fill", "url(#radar-grid)");
+
     const allC = []; trip.legs?.forEach(l => { if (l.origin?.lat != null) allC.push([l.origin.lng, l.origin.lat]); if (l.destination?.lat != null) allC.push([l.destination.lng, l.destination.lat]); });
     if (allC.length === 0) {
-      svg.append("rect").attr("width", w).attr("height", h).attr("fill", "var(--bg-map)");
-      svg.append("rect").attr("width", "100%").attr("height", "100%").attr("fill", "url(#radar-grid)");
       svg.append("text").attr("x", w / 2).attr("y", h / 2).attr("text-anchor", "middle").attr("fill", "var(--text-tertiary)").attr("font-size", "10px").attr("font-family", FONT).text("No route data");
       return;
     }
 
     const pad = 40, proj = d3.geoMercator().fitExtent([[pad, pad], [w - pad, h - pad]], { type: "MultiPoint", coordinates: allC }), path = d3.geoPath(proj);
 
-    // Background + grid
-    svg.append("rect").attr("width", w).attr("height", h).attr("fill", "var(--bg-map)");
-    svg.append("rect").attr("width", "100%").attr("height", "100%").attr("fill", "url(#radar-grid)");
+    // Zoomable content group
+    const g = svg.append("g").attr("class", "map-content");
 
     // Land
     const land = topojson.feature(worldData, worldData.objects.land);
     const borders = topojson.mesh(worldData, worldData.objects.countries, (a, b) => a !== b);
     if (isDay) {
-      svg.append("path").datum(land).attr("d", path).attr("fill", "var(--map-land)").attr("stroke", "var(--map-land-stroke)").attr("stroke-width", 0.8);
-      svg.append("path").datum(borders).attr("d", path).attr("fill", "none").attr("stroke", "var(--map-land-stroke)").attr("stroke-width", 0.5);
+      g.append("path").datum(land).attr("d", path).attr("fill", "var(--map-land)").attr("stroke", "var(--map-land-stroke)").attr("stroke-width", 0.8);
+      g.append("path").datum(borders).attr("d", path).attr("fill", "none").attr("stroke", "var(--map-land-stroke)").attr("stroke-width", 0.5);
     } else {
-      svg.append("path").datum(borders).attr("d", path).attr("fill", "none").attr("stroke", "var(--map-grid)").attr("stroke-width", 0.5);
+      g.append("path").datum(borders).attr("d", path).attr("fill", "none").attr("stroke", "var(--map-grid)").attr("stroke-width", 0.5);
     }
 
     // Hotel dwell glow
     trip.legs?.forEach(leg => {
       if (leg.type === "hotel" && leg.origin?.lat != null) {
         const [hx, hy] = proj([leg.origin.lng, leg.origin.lat]);
-        svg.append("circle").attr("cx", hx).attr("cy", hy).attr("r", 22).attr("fill", "var(--map-dwell-glow)");
-        svg.append("circle").attr("cx", hx).attr("cy", hy).attr("r", 16).attr("fill", "var(--accent-hotel)").attr("opacity", 0.08);
+        g.append("circle").attr("cx", hx).attr("cy", hy).attr("r", 22).attr("fill", "var(--map-dwell-glow)");
+        g.append("circle").attr("cx", hx).attr("cy", hy).attr("r", 16).attr("fill", "var(--accent-hotel)").attr("opacity", 0.08);
       }
     });
 
@@ -1225,10 +1236,10 @@ function TripMap({ trip, activeLegIndex, mode }) {
       const coords = leg.type === "flight" ? interpolateGC([leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat]) : [[leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat]];
       const lineGen = d3.line().x(d => proj(d)[0]).y(d => proj(d)[1]).curve(leg.type === "flight" ? d3.curveBasis : d3.curveLinear);
       if (isFirstTransport) {
-        svg.append("path").datum(coords).attr("d", lineGen).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 2.5).attr("stroke-linecap", "round");
+        g.append("path").datum(coords).attr("d", lineGen).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 2.5).attr("stroke-linecap", "round");
         isFirstTransport = false;
       } else {
-        svg.append("path").datum(coords).attr("d", lineGen).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 1.5).attr("stroke-dasharray", "6,4").attr("opacity", 0.3);
+        g.append("path").datum(coords).attr("d", lineGen).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 1.5).attr("stroke-dasharray", "6,4").attr("opacity", 0.3);
       }
     });
 
@@ -1240,17 +1251,11 @@ function TripMap({ trip, activeLegIndex, mode }) {
     });
     cities.forEach((city) => {
       const [x, y] = proj(city.coords);
-      svg.append("circle").attr("cx", x).attr("cy", y).attr("r", 12).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 0.3).attr("opacity", 0.2);
-      svg.append("circle").attr("cx", x).attr("cy", y).attr("r", 7).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 0.5).attr("opacity", 0.4);
-      svg.append("circle").attr("cx", x).attr("cy", y).attr("r", 3.5).attr("fill", "var(--map-dot)");
-      svg.append("text").attr("x", x).attr("y", y - 14).attr("text-anchor", "middle").attr("fill", "var(--map-label)").attr("font-size", "11px").attr("font-family", FONT).attr("font-weight", 600).attr("letter-spacing", "1px").text(city.code || city.city);
+      g.append("circle").attr("cx", x).attr("cy", y).attr("r", 12).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 0.3).attr("opacity", 0.2);
+      g.append("circle").attr("cx", x).attr("cy", y).attr("r", 7).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 0.5).attr("opacity", 0.4);
+      g.append("circle").attr("cx", x).attr("cy", y).attr("r", 3.5).attr("fill", "var(--map-dot)");
+      g.append("text").attr("x", x).attr("y", y - 14).attr("text-anchor", "middle").attr("fill", "var(--map-label)").attr("font-size", "11px").attr("font-family", FONT).attr("font-weight", 600).attr("letter-spacing", "1px").text(city.code || city.city);
     });
-
-    // Distance label
-    const stats = computeTripStats(trip.legs);
-    if (stats.totalNM > 0) {
-      svg.append("text").attr("x", w / 2).attr("y", 20).attr("text-anchor", "middle").attr("fill", "var(--map-distance)").attr("font-size", "8px").attr("font-family", FONT).attr("letter-spacing", "1px").text(`${stats.totalNM.toLocaleString()} NM`);
-    }
 
     // Live position dot
     const aLeg = trip.legs?.[activeLegIndex];
@@ -1258,15 +1263,35 @@ function TripMap({ trip, activeLegIndex, mode }) {
       const lp = getLivePos(aLeg);
       if (lp) {
         const [px, py] = proj([lp.lng, lp.lat]);
-        const ping = svg.append("circle").attr("cx", px).attr("cy", py).attr("r", 5).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 1.5).attr("opacity", 0);
+        const ping = g.append("circle").attr("cx", px).attr("cy", py).attr("r", 5).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 1.5).attr("opacity", 0);
         (function anim() { ping.attr("r", 5).attr("opacity", 0.6).transition().duration(1800).ease(d3.easeQuadOut).attr("r", 22).attr("opacity", 0).on("end", anim); })();
-        svg.append("circle").attr("cx", px).attr("cy", py).attr("r", 5).attr("fill", "var(--map-arc)").attr("filter", "url(#glow)");
-        svg.append("circle").attr("cx", px).attr("cy", py).attr("r", 2).attr("fill", "var(--bg-primary)");
+        g.append("circle").attr("cx", px).attr("cy", py).attr("r", 5).attr("fill", "var(--map-arc)").attr("filter", "url(#glow)");
+        g.append("circle").attr("cx", px).attr("cy", py).attr("r", 2).attr("fill", "var(--bg-primary)");
       }
     }
+
+    // Distance label (fixed, not zoomable)
+    const stats = computeTripStats(trip.legs);
+    if (stats.totalNM > 0) {
+      svg.append("text").attr("x", w / 2).attr("y", 20).attr("text-anchor", "middle").attr("fill", "var(--map-distance)").attr("font-size", "8px").attr("font-family", FONT).attr("letter-spacing", "1px").text(`${stats.totalNM.toLocaleString()} NM`);
+    }
+
+    // Zoom behavior
+    const zoom = d3.zoom().scaleExtent([0.5, 8]).on("zoom", (event) => {
+      g.attr("transform", event.transform);
+    });
+    svg.call(zoom);
+    svg.on("dblclick.zoom", null); // disable double-click zoom
+    zoomRef.current = zoom;
+
   }, [trip, activeLegIndex, mode]);
 
   useEffect(() => { draw(); const h = () => draw(); window.addEventListener("resize", h); return () => window.removeEventListener("resize", h); }, [draw]);
+
+  const resetZoom = useCallback(() => {
+    const svg = d3.select(svgRef.current);
+    if (zoomRef.current) svg.transition().duration(500).call(zoomRef.current.transform, d3.zoomIdentity);
+  }, []);
 
   // Coordinate overlay
   const firstLeg = trip.legs?.[0], lastLeg = trip.legs?.[trip.legs.length - 1];
@@ -1274,10 +1299,11 @@ function TripMap({ trip, activeLegIndex, mode }) {
   const destCoord = lastLeg?.destination?.lat != null ? formatCoord(lastLeg.destination.lat, lastLeg.destination.lng) : null;
 
   return (
-    <div ref={containerRef} className="w-full h-full relative" style={{ background: "var(--bg-map)" }}>
-      <svg ref={svgRef} className="w-full h-full" />
+    <div ref={containerRef} className="w-full h-full relative" style={{ background: "var(--bg-map)", touchAction: "none" }}>
+      <svg ref={svgRef} className="w-full h-full" style={{ cursor: "grab" }} />
+      <button onClick={resetZoom} style={{ position: "absolute", bottom: 8, left: 8, background: "var(--bg-surface)", border: "1px solid var(--border-primary)", borderRadius: 4, padding: "4px 8px", fontFamily: FONT, fontSize: "7px", letterSpacing: "1px", color: "var(--text-secondary)", cursor: "pointer" }}>RESET</button>
       {(originCoord || destCoord) && (
-        <div className="absolute top-2 right-2" style={{ fontFamily: FONT, fontSize: "8px", color: "var(--map-distance)", letterSpacing: "0.5px", lineHeight: 1.6, textAlign: "right" }}>
+        <div className="absolute top-2 right-2" style={{ fontFamily: FONT, fontSize: "8px", color: "var(--map-distance)", letterSpacing: "0.5px", lineHeight: 1.6, textAlign: "right", pointerEvents: "none" }}>
           {originCoord && <div>{originCoord}</div>}
           {destCoord && <div>{destCoord}</div>}
         </div>
