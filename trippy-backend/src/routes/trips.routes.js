@@ -1,12 +1,13 @@
 const { Router } = require('express');
 const { requireAuth } = require('../middleware/auth');
 const {
-  listTrips, createTrip, getTrip, updateTrip, deleteTrip, getFollowingTrips
+  listTrips, createTrip, getTrip, updateTrip, deleteTrip, getFollowingTrips, unfollowTrip
 } = require('../controllers/trips.controller');
 
 const router = Router();
 
 router.get('/following', requireAuth, getFollowingTrips);
+router.delete('/following/:tripId', requireAuth, unfollowTrip);
 router.get('/', requireAuth, listTrips);
 router.post('/', requireAuth, createTrip);
 router.get('/:tripId', requireAuth, getTrip);

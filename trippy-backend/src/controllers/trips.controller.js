@@ -166,4 +166,16 @@ async function getFollowingTrips(req, res) {
   res.json(trips);
 }
 
-module.exports = { listTrips, createTrip, getTrip, updateTrip, deleteTrip, getFollowingTrips };
+async function unfollowTrip(req, res) {
+  const supabase = createUserClient(req.accessToken);
+  const { tripId } = req.params;
+  const { error } = await supabase
+    .from('trip_followers')
+    .delete()
+    .eq('trip_id', tripId)
+    .eq('follower_id', req.user.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true });
+}
+
+module.exports = { listTrips, createTrip, getTrip, updateTrip, deleteTrip, getFollowingTrips, unfollowTrip };
