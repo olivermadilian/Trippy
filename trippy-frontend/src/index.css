@@ -45,3 +45,42 @@ html, body, #root {
   opacity: 0;
   transition: opacity 0.5s ease;
 }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes planeMove {
+  0% { top: 75%; opacity: 0; }
+  5% { opacity: 1; }
+  85% { opacity: 1; }
+  100% { top: -12%; opacity: 0; }
+}
+@keyframes trainMove {
+  0% { top: 110%; }
+  100% { top: -20%; }
+}
+@keyframes lightPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+@keyframes greenPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+@keyframes redPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+@keyframes strobePulse {
+  0%, 8% { opacity: 1; }
+  9%, 100% { opacity: 0.1; }
+}
+@keyframes navPulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+@keyframes beaconPulse {
+  0%, 100% { opacity: 0.1; }
+  50% { opacity: 1; }
+}

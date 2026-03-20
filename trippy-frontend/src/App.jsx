@@ -1,2 +1,2 @@
-import App from "./TripTrackApp";
+import App from "./TransponderApp";
 export default App;

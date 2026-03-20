@@ -218,13 +218,20 @@ function useTheme() { return useContext(ThemeContext); }
 
 function ThemeProvider({ children }) {
   const [pref, setPrefState] = useState(() => {
-    try { return localStorage.getItem("triptrack-theme") || "auto"; } catch { return "auto"; }
+    try {
+      // Migrate old key
+      if (!localStorage.getItem("transponder-theme") && localStorage.getItem("triptrack-theme")) {
+        localStorage.setItem("transponder-theme", localStorage.getItem("triptrack-theme"));
+        localStorage.removeItem("triptrack-theme");
+      }
+      return localStorage.getItem("transponder-theme") || "auto";
+    } catch { return "auto"; }
   });
   const [mode, setMode] = useState(() => computeMode(pref));
 
   const setPref = (newPref) => {
     setPrefState(newPref);
-    try { localStorage.setItem("triptrack-theme", newPref); } catch {}
+    try { localStorage.setItem("transponder-theme", newPref); } catch {}
     const newMode = computeMode(newPref);
     setMode(newMode);
     applyTheme(newMode);
@@ -408,19 +415,286 @@ function Spinner() { return <span className="inline-block w-4 h-4 border-2 borde
 function LoadingScreen() { return <div className="flex items-center justify-center min-h-[60vh]"><Spinner /><span className="ml-3 text-xs tracking-widest" style={{ color: C.textDim, fontFamily: FONT, fontSize: "10px", letterSpacing: "2px" }}>LOADING</span></div>; }
 
 // ═══════════════════════════════════════════════════════════════════
-// LOGIN PAGE
+// LANDING PAGE
 // ═══════════════════════════════════════════════════════════════════
 
-function LoginPage() {
-  const { signIn } = useAuth();
+function LandingPage({ onSignIn }) {
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const runwayWidth = isMobile ? 140 : 170;
+  const trackWidth = isMobile ? 110 : 130;
+
   return (
-    <div className="min-h-screen flex items-center justify-center px-6" style={{ background: C.bg }}>
-      <div className="w-full max-w-xs text-center">
-        <h1 className="text-xs font-bold tracking-widest mb-2" style={{ color: C.textDim, fontFamily: FONT, fontSize: "11px", letterSpacing: "4px" }}>TRIPTRACK</h1>
-        <p className="text-xs mb-8" style={{ color: C.textGhost, fontFamily: FONT }}>Track every leg of the journey</p>
-        <button onClick={signIn} className="w-full py-3.5 rounded text-xs font-bold tracking-widest" style={{ background: C.red, color: "#fff", fontFamily: FONT, fontSize: "10px", letterSpacing: "2px" }}>
-          SIGN IN WITH GOOGLE
-        </button>
+    <div style={{ background: '#000', minHeight: '100vh', fontFamily: FONT, color: '#e8e4de', overflow: 'hidden', position: 'relative' }}>
+      <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+
+      {/* ── Infrastructure Strip ── */}
+      <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', zIndex: 0, overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', width: 340, height: '300%', top: '-60%', left: isMobile ? '78%' : '55%', transform: 'translateX(-50%) rotate(-25deg)', display: 'flex', flexDirection: 'row' }}>
+
+          {/* Runway */}
+          <div style={{ width: runwayWidth, background: '#060806', borderLeft: '2px solid #0a1a0a', position: 'relative', overflow: 'hidden', height: '100%' }}>
+            {/* Center dashes */}
+            {Array.from({length: 28}, (_, i) => (
+              <div key={`dash-${i}`} style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: `${3 + i * 3.3}%`, width: isMobile ? 5 : 6, height: isMobile ? 40 : 45, background: '#1a2a1a' }}/>
+            ))}
+            {/* Edge lights */}
+            {Array.from({length: 20}, (_, i) => {
+              const top = 4 + i * 4;
+              return [
+                <div key={`el-l-${i}`} style={{ position: 'absolute', left: 4, top: `${top}%`, width: isMobile ? 5 : 6, height: isMobile ? 5 : 6, borderRadius: '50%', background: '#e8e4de', animation: 'lightPulse 3s ease-in-out infinite', animationDelay: `${i * 0.15}s`, boxShadow: '0 0 4px 2px rgba(232,228,222,0.3)' }}/>,
+                <div key={`el-r-${i}`} style={{ position: 'absolute', right: 4, top: `${top}%`, width: isMobile ? 5 : 6, height: isMobile ? 5 : 6, borderRadius: '50%', background: '#e8e4de', animation: 'lightPulse 3s ease-in-out infinite', animationDelay: `${(i * 0.15) + 0.08}s`, boxShadow: '0 0 4px 2px rgba(232,228,222,0.3)' }}/>
+              ];
+            })}
+            {/* Threshold lights (green) */}
+            {Array.from({length: 5}, (_, i) => (
+              <div key={`th-${i}`} style={{ position: 'absolute', bottom: '20%', left: `${15 + i * 17}%`, width: isMobile ? 7 : 8, height: isMobile ? 7 : 8, borderRadius: '50%', background: '#22c55e', animation: 'greenPulse 2s ease-in-out infinite', animationDelay: `${i * 0.1}s`, boxShadow: '0 0 6px 3px rgba(34,197,94,0.4)' }}/>
+            ))}
+            {/* Runway end lights (red) */}
+            {Array.from({length: 5}, (_, i) => (
+              <div key={`re-${i}`} style={{ position: 'absolute', top: '18%', left: `${15 + i * 17}%`, width: isMobile ? 6 : 7, height: isMobile ? 6 : 7, borderRadius: '50%', background: '#e84233', animation: 'redPulse 2.5s ease-in-out infinite', animationDelay: `${i * 0.12}s`, boxShadow: '0 0 6px 3px rgba(232,66,51,0.4)' }}/>
+            ))}
+            {/* PAPI lights */}
+            {[-30, runwayWidth + 10].map((xOff, si) => (
+              <div key={`papi-${si}`} style={{ position: 'absolute', bottom: '22%', left: xOff, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                {[['#e84233', 'rgba(232,66,51,0.4)'], ['#e84233', 'rgba(232,66,51,0.4)'], ['#e8e4de', 'rgba(232,228,222,0.4)'], ['#e8e4de', 'rgba(232,228,222,0.4)']].map(([c, g], di) => (
+                  <div key={di} style={{ width: 4, height: 4, borderRadius: '50%', background: c, boxShadow: `0 0 4px 2px ${g}` }}/>
+                ))}
+              </div>
+            ))}
+            {/* Approach strobes */}
+            {[11, 8, 5].map((bot, ri) => (
+              <div key={`strobe-row-${ri}`} style={{ position: 'absolute', bottom: `${bot}%`, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 8 }}>
+                {Array.from({length: 3}, (_, di) => (
+                  <div key={di} style={{ width: isMobile ? 5 : 6, height: isMobile ? 5 : 6, borderRadius: '50%', background: '#fff', animation: 'strobePulse 2s linear infinite', animationDelay: `${ri * 0.3 + di * 0.1}s` }}/>
+                ))}
+              </div>
+            ))}
+            {/* Taxiway lights (blue) */}
+            {[30, 45, 60, 75].map((top, i) => (
+              <div key={`taxi-b-${i}`} style={{ position: 'absolute', left: -22, top: `${top}%`, width: isMobile ? 4 : 5, height: isMobile ? 4 : 5, borderRadius: '50%', background: '#3878c8', animation: 'lightPulse 4s ease-in-out infinite', animationDelay: `${i * 0.5}s`, boxShadow: '0 0 4px 2px rgba(56,120,200,0.3)' }}/>
+            ))}
+            {/* Taxiway lights (amber) */}
+            {[35, 50, 65].map((top, i) => (
+              <div key={`taxi-a-${i}`} style={{ position: 'absolute', left: -16, top: `${top}%`, width: isMobile ? 3 : 4, height: isMobile ? 3 : 4, borderRadius: '50%', background: '#c9993a', animation: 'lightPulse 3s ease-in-out infinite', animationDelay: `${i * 0.4}s`, boxShadow: '0 0 3px 1px rgba(201,153,58,0.3)' }}/>
+            ))}
+            {/* Runway number */}
+            <div style={{ position: 'absolute', bottom: '14%', left: '50%', transform: 'translateX(-50%)', fontSize: isMobile ? 26 : 32, fontWeight: 700, color: '#0f1f0f', fontFamily: FONT }}>09</div>
+
+            {/* Plane SVG */}
+            <svg viewBox="0 0 160 190" style={{ width: isMobile ? 130 : 160, height: isMobile ? 155 : 190, position: 'absolute', left: '50%', transform: 'translateX(-50%)', animation: 'planeMove 16s linear infinite', zIndex: 2 }}>
+              <ellipse cx="80" cy="20" rx="8" ry="15" fill="#c8c8c0" opacity="0.7"/>
+              <rect x="72" y="20" width="16" height="130" rx="3" fill="#c8c8c0" opacity="0.7"/>
+              <ellipse cx="80" cy="150" rx="8" ry="10" fill="#c8c8c0" opacity="0.65"/>
+              <polygon points="80,60 10,85 10,90 80,75" fill="#a0a098" opacity="0.65"/>
+              <polygon points="80,60 150,85 150,90 80,75" fill="#a0a098" opacity="0.65"/>
+              <rect x="5" y="83" width="8" height="4" rx="2" fill="#a0a098" opacity="0.5"/>
+              <rect x="147" y="83" width="8" height="4" rx="2" fill="#a0a098" opacity="0.5"/>
+              <ellipse cx="45" cy="75" rx="5" ry="8" fill="#888880" opacity="0.55"/>
+              <ellipse cx="115" cy="75" rx="5" ry="8" fill="#888880" opacity="0.55"/>
+              <polygon points="80,140 55,155 55,158 80,148" fill="#a0a098" opacity="0.6"/>
+              <polygon points="80,140 105,155 105,158 80,148" fill="#a0a098" opacity="0.6"/>
+              <polygon points="78,135 80,115 82,135" fill="#b0b0a8" opacity="0.6"/>
+              <circle cx="8" cy="86" r="3" fill="#e84233" opacity="0.8">
+                <animate attributeName="opacity" values="0.3;1;0.3" dur="1s" repeatCount="indefinite"/>
+              </circle>
+              <circle cx="8" cy="86" r="6" fill="none" stroke="#e84233" strokeWidth="1" opacity="0.3">
+                <animate attributeName="opacity" values="0.1;0.4;0.1" dur="1s" repeatCount="indefinite"/>
+              </circle>
+              <circle cx="152" cy="86" r="3" fill="#22c55e" opacity="0.8">
+                <animate attributeName="opacity" values="0.3;1;0.3" dur="1s" repeatCount="indefinite"/>
+              </circle>
+              <circle cx="152" cy="86" r="6" fill="none" stroke="#22c55e" strokeWidth="1" opacity="0.3">
+                <animate attributeName="opacity" values="0.1;0.4;0.1" dur="1s" repeatCount="indefinite"/>
+              </circle>
+              <circle cx="80" cy="50" r="2" fill="#e84233">
+                <animate attributeName="opacity" values="0.1;1;0.1" dur="0.8s" repeatCount="indefinite"/>
+              </circle>
+              <circle cx="80" cy="140" r="2" fill="#e84233">
+                <animate attributeName="opacity" values="0.1;1;0.1" dur="0.8s" repeatCount="indefinite"/>
+              </circle>
+              <circle cx="80" cy="10" r="4" fill="#fff" opacity="0.15"/>
+            </svg>
+          </div>
+
+          {/* Divider between runway and track */}
+          <div style={{ width: isMobile ? 3 : 4, background: '#000', height: '100%' }}/>
+
+          {/* Train track */}
+          <div style={{ width: trackWidth, background: '#040404', position: 'relative', overflow: 'hidden', height: '100%' }}>
+            {/* Ballast texture */}
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'repeating-linear-gradient(180deg, rgba(12,12,16,0.5) 0px, rgba(8,8,12,0.3) 2px, transparent 3px, transparent 6px)', opacity: 0.5 }}/>
+            {/* Cross ties */}
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'repeating-linear-gradient(to bottom, transparent 0px, transparent 10px, #0c0c10 10px, #0c0c10 13px)' }}/>
+            {/* Steel rails */}
+            <div style={{ position: 'absolute', top: 0, bottom: 0, left: '30%', width: isMobile ? 2 : 3, background: '#1e1e22' }}/>
+            <div style={{ position: 'absolute', top: 0, bottom: 0, right: '30%', width: isMobile ? 2 : 3, background: '#1e1e22' }}/>
+            {/* Track signals */}
+            {[25, 45, 65, 85].map((top, i) => (
+              <div key={`sig-${i}`} style={{ position: 'absolute', right: 8, top: `${top}%`, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <div style={{ width: isMobile ? 4 : 5, height: isMobile ? 4 : 5, borderRadius: '50%', background: '#22c55e', opacity: i % 2 === 0 ? 0.8 : 0.1, boxShadow: i % 2 === 0 ? '0 0 4px 2px rgba(34,197,94,0.3)' : 'none' }}/>
+                <div style={{ width: isMobile ? 4 : 5, height: isMobile ? 4 : 5, borderRadius: '50%', background: '#e84233', opacity: i % 2 === 0 ? 0.1 : 0.8, boxShadow: i % 2 !== 0 ? '0 0 4px 2px rgba(232,66,51,0.3)' : 'none' }}/>
+              </div>
+            ))}
+            {/* Train (TGV) */}
+            <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', animation: 'trainMove 18s linear infinite', zIndex: 2, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              {/* Locomotive */}
+              <div style={{ width: isMobile ? 24 : 30, height: isMobile ? 36 : 42, background: 'linear-gradient(180deg, #d4628a, #a84068)', borderRadius: '8px 8px 2px 2px', position: 'relative' }}>
+                <div style={{ position: 'absolute', top: -4, left: '50%', transform: 'translateX(-50%)', width: isMobile ? 7 : 8, height: isMobile ? 7 : 8, borderRadius: '50%', background: '#f0d0e0', boxShadow: '0 0 12px 6px rgba(212,98,138,0.5), 0 0 28px 14px rgba(212,98,138,0.2)' }}/>
+              </div>
+              {/* Coaches */}
+              {Array.from({length: 4}, (_, i) => (
+                <div key={`coach-${i}`} style={{ width: isMobile ? 24 : 30, height: isMobile ? 26 : 32, background: 'linear-gradient(180deg, #1a1a2a, #22223a)', borderRadius: 2, marginTop: 2, position: 'relative', overflow: 'hidden' }}>
+                  <div style={{ position: 'absolute', top: '40%', left: 3, right: 3, height: 2, background: 'rgba(200,200,255,0.08)' }}/>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Mobile vignette ── */}
+      {isMobile && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'linear-gradient(to right, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.7) 50%, rgba(0,0,0,0.3) 100%)', pointerEvents: 'none', zIndex: 1 }}/>
+      )}
+
+      {/* ── Fixed Nav ── */}
+      <div style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 10, padding: isMobile ? '14px 20px' : '20px 40px', background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', borderBottom: '1px solid rgba(74,255,74,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ fontSize: 10, letterSpacing: 4, color: '#4aff4a', fontWeight: 600, fontFamily: FONT }}>TRANSPONDER</span>
+        <button onClick={onSignIn} style={{ height: isMobile ? 38 : 40, padding: isMobile ? '0 18px' : '0 20px', background: '#22c55e', color: '#000', borderRadius: 8, fontSize: 9, letterSpacing: 2, fontWeight: 500, cursor: 'pointer', border: 'none', fontFamily: FONT }}>GET STARTED</button>
+      </div>
+
+      {/* ── Content ── */}
+      <div style={{ position: 'relative', zIndex: 2 }}>
+        <div style={{ maxWidth: isMobile ? 340 : 560, padding: isMobile ? '0 20px' : '0 40px' }}>
+
+          {/* ── Hero Section ── */}
+          <div style={{ paddingTop: isMobile ? 90 : 100, paddingBottom: isMobile ? 40 : 60 }}>
+            <div style={{ fontSize: 8, letterSpacing: 4, color: '#22c55e', animation: 'fadeUp 0.6s ease forwards', animationDelay: '0.2s', opacity: 0, fontFamily: FONT }}>TRAVEL TRACKING &middot; REIMAGINED</div>
+            <div style={{ marginTop: 16 }}>
+              {['Track your flight.', 'Follow a train', 'across Europe.', 'Log every stop.'].map((line, i) => (
+                <span key={i} style={{ display: 'block', fontSize: isMobile ? 36 : 48, fontWeight: 700, color: '#e8e4de', letterSpacing: -0.5, lineHeight: 1.12, animation: 'fadeUp 0.5s ease forwards', animationDelay: `${0.4 + i * 0.3}s`, opacity: 0, fontFamily: FONT }}>{line}</span>
+              ))}
+            </div>
+            <p style={{ marginTop: 20, fontSize: isMobile ? 14 : 15, color: '#5a7a5a', lineHeight: 1.7, animation: 'fadeUp 0.5s ease forwards', animationDelay: '1.6s', opacity: 0, fontFamily: FONT }}>
+              <strong style={{ color: '#c8e8c8', fontWeight: 600 }}>Transponder</strong> is a personal travel tracker built for people who move. File a flight plan, share a squawk code, and follow your friends across borders — all in one place.
+            </p>
+            <div style={{ display: 'flex', gap: 8, marginTop: 22, animation: 'fadeUp 0.5s ease forwards', animationDelay: '2.0s', opacity: 0, flexWrap: 'wrap' }}>
+              {[['FLIGHTS', '#22c55e'], ['TRAINS', '#d4628a'], ['HOTELS', '#c9993a'], ['BUSES', '#7c6bb4']].map(([label, color]) => (
+                <span key={label} style={{ padding: '7px 14px', borderRadius: 4, fontSize: 9, letterSpacing: 2, background: 'transparent', border: `1px solid ${color}`, color, fontFamily: FONT }}>{label}</span>
+              ))}
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div style={{ width: 40, height: 1, background: '#1a2a1a', margin: isMobile ? '40px 20px' : '40px 0' }}/>
+
+          {/* ── Features Section ── */}
+          <div style={{ paddingBottom: isMobile ? 40 : 60, display: 'flex', flexDirection: 'column', gap: isMobile ? 36 : 40 }}>
+            {[
+              { icon: '\u2708', label: 'FILE', text: 'Build your full itinerary in one place. Flights auto-populate from a callsign. Hotels via Google Places. Trains across SNCF, Deutsche Bahn, and more.' },
+              { icon: '\u25C6', label: 'SQUAWK', text: 'Generate a one-time 6-character code. Send it to anyone \u2014 they enter it, your trip appears in their feed. 24-hour expiry. No accounts needed to follow.' },
+              { icon: '\u25CE', label: 'TRACK', text: 'See where your people might be \u2014 city-level presence, not hotel pins. Live flight progress, train updates, countdown to departure. Your permanent travel archive.' },
+            ].map((f, i) => (
+              <div key={i} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+                <div style={{ width: isMobile ? 42 : 44, height: isMobile ? 42 : 44, border: '1.5px solid #22c55e', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4aff4a', fontSize: 15, flexShrink: 0 }}>{f.icon}</div>
+                <div>
+                  <div style={{ fontSize: 9, letterSpacing: 3, color: '#4aff4a', marginBottom: 6, fontFamily: FONT }}>{f.label}</div>
+                  <div style={{ fontSize: isMobile ? 12 : 13, color: '#3a5a3a', lineHeight: 1.6, fontFamily: FONT }}>{f.text}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Divider */}
+          <div style={{ width: 40, height: 1, background: '#1a2a1a', margin: isMobile ? '40px 20px' : '40px 0' }}/>
+
+          {/* ── Connected Networks Section ── */}
+          <div style={{ paddingBottom: isMobile ? 40 : 60 }}>
+            <div style={{ fontSize: 8, letterSpacing: 3, color: '#22c55e', marginBottom: 12, fontFamily: FONT }}>CONNECTED NETWORKS</div>
+            <div style={{ fontSize: isMobile ? 20 : 22, fontWeight: 600, color: '#e8e4de', marginBottom: 8, fontFamily: FONT }}>Flights. Trains. Everything.</div>
+            <div style={{ fontSize: 11, color: '#3a5a3a', lineHeight: 1.6, marginBottom: 20, fontFamily: FONT }}>Real-time data from European and North American rail networks. Flight tracking across all major carriers.</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {[
+                { name: 'SNCF', color: '#d4628a', icon: 'TGV', detail: 'TGV \u00B7 INTERCIT\u00C9S \u00B7 TER \u00B7 FRENCH RAIL', status: 'LIVE', statusBg: 'rgba(34,197,94,0.15)', statusColor: '#22c55e' },
+                { name: 'DEUTSCHE BAHN', color: '#e84233', icon: 'DB', detail: 'ICE \u00B7 IC \u00B7 REGIONAL \u00B7 GERMAN RAIL', status: 'LIVE', statusBg: 'rgba(34,197,94,0.15)', statusColor: '#22c55e' },
+                { name: 'AMTRAK', color: '#3878c8', icon: 'ATK', detail: 'NORTHEAST REGIONAL \u00B7 ACELA', status: 'COMING SOON', statusBg: 'rgba(201,153,58,0.15)', statusColor: '#c9993a' },
+              ].map((n, i) => (
+                <div key={i} style={{ border: '1px solid #1a2a1a', borderRadius: 8, padding: '12px 14px', background: '#050a05', display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ width: 3, height: 36, borderRadius: 2, background: n.color, flexShrink: 0 }}/>
+                  <div style={{ width: 34, height: 34, borderRadius: 6, border: `1px solid ${n.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, color: n.color, fontWeight: 600, fontFamily: FONT, flexShrink: 0 }}>{n.icon}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: '#e8e4de', fontFamily: FONT }}>{n.name}</div>
+                    <div style={{ fontSize: 7, color: '#2a4a2a', letterSpacing: 1, fontFamily: FONT }}>{n.detail}</div>
+                  </div>
+                  <span style={{ marginLeft: 'auto', fontSize: 7, letterSpacing: 1, padding: '3px 7px', borderRadius: 3, background: n.statusBg, color: n.statusColor, fontFamily: FONT, whiteSpace: 'nowrap' }}>{n.status}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div style={{ width: 40, height: 1, background: '#1a2a1a', margin: isMobile ? '40px 20px' : '40px 0' }}/>
+
+          {/* ── App Preview Section ── */}
+          <div style={{ padding: isMobile ? '20px 0 40px' : '20px 0 40px' }}>
+            <div style={{ width: isMobile ? 240 : 260, background: '#0a0a0c', borderRadius: 28, padding: 6, border: '3px solid #1a1a1e', position: 'relative', overflow: 'hidden' }}>
+              {/* Notch */}
+              <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 70, height: 18, background: '#0a0a0c', borderRadius: '0 0 10px 10px', border: '2px solid #1a1a1e', borderTop: 'none', zIndex: 2 }}/>
+              {/* Screen */}
+              <div style={{ background: '#000', borderRadius: 22, overflow: 'hidden', padding: '28px 12px 16px' }}>
+                <div style={{ fontSize: 7, letterSpacing: 2, color: '#22c55e', fontFamily: FONT }}>FLIGHT PLAN</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#e8e4de', marginTop: 4, fontFamily: FONT }}>EUROPE SUMMER '26</div>
+                <span style={{ display: 'inline-block', fontSize: 7, padding: '2px 6px', background: 'rgba(201,153,58,0.15)', color: '#c9993a', borderRadius: 3, marginTop: 6, fontFamily: FONT }}>12D 4H</span>
+                {/* Mini radar map */}
+                <div style={{ width: '100%', height: 80, background: '#020402', borderRadius: 8, margin: '12px 0', border: '1px solid #0a1a0a', overflow: 'hidden', position: 'relative' }}>
+                  <svg viewBox="0 0 200 70" style={{ width: '100%', height: '100%' }}>
+                    <line x1="20" y1="35" x2="180" y2="25" stroke="#22c55e" strokeWidth="1" opacity="0.4"/>
+                    <line x1="180" y1="25" x2="120" y2="50" stroke="#22c55e" strokeWidth="1" opacity="0.4"/>
+                    <circle cx="20" cy="35" r="3" fill="#4aff4a"/>
+                    <circle cx="180" cy="25" r="3" fill="#4aff4a"/>
+                    <circle cx="120" cy="50" r="3" fill="#c9993a" opacity="0.6"/>
+                    <text x="20" y="30" fill="#4aff4a" fontSize="5" fontFamily="'IBM Plex Mono',monospace">LAX</text>
+                    <text x="175" y="20" fill="#4aff4a" fontSize="5" fontFamily="'IBM Plex Mono',monospace" textAnchor="end">CDG</text>
+                    <text x="120" y="45" fill="#c9993a" fontSize="5" fontFamily="'IBM Plex Mono',monospace">BCN</text>
+                  </svg>
+                </div>
+                {/* Mini leg cards */}
+                <div style={{ borderLeft: '2px solid #22c55e', background: '#050a05', padding: '8px 10px', borderRadius: 4, marginBottom: 6 }}>
+                  <div style={{ fontSize: 8, color: '#e8e4de', fontWeight: 600, fontFamily: FONT }}>LAX → CDG</div>
+                  <div style={{ fontSize: 6, color: '#3a5a3a', marginTop: 2, fontFamily: FONT }}>AF 65 · JUN 15</div>
+                </div>
+                <div style={{ borderLeft: '2px solid #c9993a', background: '#050a05', padding: '8px 10px', borderRadius: 4, marginBottom: 6 }}>
+                  <div style={{ fontSize: 8, color: '#e8e4de', fontWeight: 600, fontFamily: FONT }}>H&Ocirc;TEL MARAIS</div>
+                  <div style={{ fontSize: 6, color: '#3a5a3a', marginTop: 2, fontFamily: FONT }}>3 NIGHTS · PARIS</div>
+                </div>
+                <div style={{ borderLeft: '2px solid #d4628a', background: '#050a05', padding: '8px 10px', borderRadius: 4 }}>
+                  <div style={{ fontSize: 8, color: '#e8e4de', fontWeight: 600, fontFamily: FONT }}>CDG → BCN SANTS</div>
+                  <div style={{ fontSize: 6, color: '#3a5a3a', marginTop: 2, fontFamily: FONT }}>TGV 6825 · JUN 18</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Bottom CTA Section ── */}
+          <div style={{ padding: isMobile ? '20px 0 60px' : '60px 0 80px' }}>
+            <div style={{ fontSize: isMobile ? 20 : 22, fontWeight: 600, color: '#e8e4de', lineHeight: 1.2, marginBottom: 20, fontFamily: FONT }}>Ready to track your next trip?</div>
+            <button onClick={onSignIn} style={{ width: '100%', maxWidth: isMobile ? undefined : 560, height: 50, background: '#22c55e', color: '#000', borderRadius: 10, fontSize: 11, letterSpacing: 3, fontWeight: 500, cursor: 'pointer', border: 'none', fontFamily: FONT }}>GET STARTED</button>
+            <div style={{ fontSize: 8, color: '#2a4a2a', textAlign: 'center', marginTop: 10, fontFamily: FONT }}>Sign in with Google to begin filing your first flight plan.</div>
+          </div>
+        </div>
+
+        {/* ── Footer ── */}
+        <div style={{ padding: isMobile ? '24px 20px' : '32px 40px', borderTop: '1px solid #0f1a0f', display: 'flex', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: 8, color: '#1a3a1a', letterSpacing: 1, fontFamily: FONT }}>TRANSPONDER &middot; 2026</span>
+          <span style={{ fontSize: 8, color: '#1a3a1a', letterSpacing: 1, fontFamily: FONT }}>BUILT IN LOS ANGELES</span>
+        </div>
       </div>
     </div>
   );
@@ -460,7 +734,7 @@ function SquawkModal({ trip, onClose }) {
   };
 
   const copy = (type) => {
-    const text = type === "code" ? squawk : `Follow my trip "${trip.title}" on TripTrack.\nSquawk code: ${squawk}`;
+    const text = type === "code" ? squawk : `Follow my trip "${trip.title}" on Transponder.\nSquawk code: ${squawk}`;
     navigator.clipboard?.writeText(text).catch(() => {});
     setCopied(type); setTimeout(() => setCopied(null), 2000);
   };
@@ -2764,7 +3038,7 @@ function SharedPage({ tripId }) {
             </div>
           )}
         </div>
-        <p className="text-center mt-4" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "3px", color: "var(--text-tertiary)" }}>TRIPTRACK</p>
+        <p className="text-center mt-4" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "3px", color: "var(--text-tertiary)" }}>TRANSPONDER</p>
       </div>
     </div>
   );
@@ -2821,8 +3095,8 @@ function NavRight({ user, signOut }) {
 // APP SHELL
 // ═══════════════════════════════════════════════════════════════════
 
-function TripTrackApp() {
-  const { user, loading: authLoading, signOut } = useAuth();
+function TransponderApp() {
+  const { user, loading: authLoading, signIn, signOut } = useAuth();
   const [route, setRoute] = useState({ page: "dashboard", params: {} });
   const [loaded, setLoaded] = useState(false);
   const [offline, setOffline] = useState(!navigator.onLine);
@@ -2837,7 +3111,7 @@ function TripTrackApp() {
   const navigate = (page, params = {}) => { setRoute({ page, params }); setLoaded(false); setTimeout(() => setLoaded(true), 50); };
 
   if (authLoading) return <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg-primary)" }}><Spinner /></div>;
-  if (!user) return <LoginPage />;
+  if (!user) return <LandingPage onSignIn={signIn} />;
 
   const isFullWidth = route.page === "detail" || route.page === "dashboard" || route.page === "shared";
   return (
@@ -2850,7 +3124,7 @@ function TripTrackApp() {
           </div>
         )}
         <div className="sticky top-0 z-40 flex items-center justify-between px-4 sm:px-6 h-[48px] sm:h-[53px]" style={{ borderBottom: "1px solid var(--nav-border)", background: "var(--nav-bg)", backdropFilter: "blur(12px)", marginTop: offline ? 34 : 0 }}>
-          <button onClick={() => navigate("dashboard")} style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "3px", color: "var(--text-tertiary)", fontWeight: 700 }}>TRIPTRACK</button>
+          <button onClick={() => navigate("dashboard")} style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "3px", color: "var(--text-tertiary)", fontWeight: 700 }}>TRANSPONDER</button>
           <div className="flex items-center gap-1.5">
             {route.page === "dashboard" && (
               <button onClick={() => navigate("create")} className="flex items-center justify-center" style={{ height: 44, padding: "0 16px", borderRadius: 8, background: "var(--squawk-bg)", color: "var(--squawk-text)", fontFamily: FONT, fontSize: "10px", letterSpacing: "2px", fontWeight: 700 }}>FILE</button>
@@ -2874,5 +3148,5 @@ function TripTrackApp() {
 // ═══════════════════════════════════════════════════════════════════
 
 export default function App() {
-  return <ThemeProvider><AuthProvider><TripTrackApp /></AuthProvider></ThemeProvider>;
+  return <ThemeProvider><AuthProvider><TransponderApp /></AuthProvider></ThemeProvider>;
 }
