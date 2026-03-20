@@ -19,10 +19,10 @@ async function lookupFlight(callsign, date) {
     flight_iata: `${airlineIata}${flightNumber}`,
   };
 
-  // Add date filter if provided
-  if (date) {
-    params.flight_date = date;
-  }
+  // Add date filter if provided (requires paid AviationStack plan)
+  // if (date) {
+  //   params.flight_date = date;
+  // }
 
   try {
     const response = await axios.get(`${API_BASE}/flights`, { params });
