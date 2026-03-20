@@ -280,7 +280,7 @@ function ThemeProvider({ children }) {
 const RouterContext = createContext();
 function useRouter() { return useContext(RouterContext); }
 
-const FONT = "'IBM Plex Mono', monospace";
+const FONT = "'B612 Mono', 'B612', monospace";
 const C = {
   bg: "#0c0c0e", surface: "rgba(255,255,255,0.02)", surfaceHover: "rgba(255,255,255,0.04)",
   border: "rgba(255,255,255,0.06)", borderHover: "rgba(255,255,255,0.12)",
