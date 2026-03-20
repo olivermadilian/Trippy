@@ -69,6 +69,20 @@ function mapFlightLookup(r) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// RESPONSIVE HOOK
+// ═══════════════════════════════════════════════════════════════════
+
+function useIsDesktop() {
+  const [isDesktop, setIsDesktop] = useState(window.innerWidth > 768);
+  useEffect(() => {
+    const handler = () => setIsDesktop(window.innerWidth > 768);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
+  return isDesktop;
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // AUTH CONTEXT
 // ═══════════════════════════════════════════════════════════════════
 
@@ -706,6 +720,7 @@ function LandingPage({ onSignIn }) {
 
 function SquawkModal({ trip, onClose }) {
   const { mode } = useTheme();
+  const isDesktop = useIsDesktop();
   const [squawk, setSquawk] = useState(null);
   const [copied, setCopied] = useState(null);
   const [generating, setGenerating] = useState(false);
@@ -750,7 +765,7 @@ function SquawkModal({ trip, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center" style={{ background: mode === "night" ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0.3)" }} onClick={onClose}>
-      <div className="w-full sm:max-w-md" style={{ background: "var(--bg-primary)", borderTop: "1px solid var(--border-primary)", borderRadius: "16px 16px 0 0", maxHeight: "85vh", overflowY: "auto" }} onClick={e => e.stopPropagation()}>
+      <div className="w-full" style={{ background: "var(--bg-primary)", borderTop: "1px solid var(--border-primary)", borderRadius: "16px 16px 0 0", maxHeight: "85vh", overflowY: "auto", maxWidth: isDesktop ? 480 : undefined, margin: isDesktop ? "0 auto" : undefined }} onClick={e => e.stopPropagation()}>
         <div style={{ padding: "20px 16px 24px" }}>
           {/* Drag handle */}
           <div style={{ width: 36, height: 4, background: "var(--border-primary)", borderRadius: 2, margin: "0 auto 16px" }} />
@@ -928,7 +943,7 @@ function SquawkEntry({ onClaim }) {
 // DASHBOARD — Global Radar Map
 // ═══════════════════════════════════════════════════════════════════
 
-function DashboardMap({ trips, filter, heroTripId }) {
+function DashboardMap({ trips, filter, heroTripId, hoveredTripId }) {
   const svgRef = useRef(null), containerRef = useRef(null), zoomRef = useRef(null);
   const { mode } = useTheme();
 
@@ -979,11 +994,12 @@ function DashboardMap({ trips, filter, heroTripId }) {
     // Ghost arcs (non-hero trips)
     trips.forEach(trip => {
       if (trip.id === heroTripId) return;
+      const isHovered = hoveredTripId && trip.id === hoveredTripId;
       trip.legs?.forEach(leg => {
         if (leg.type === "hotel" || leg.origin?.lat == null || leg.destination?.lat == null) return;
         const coords = leg.type === "flight" ? interpolateGC([leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat]) : [[leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat]];
         const lineGen = d3.line().x(d => proj(d)[0]).y(d => proj(d)[1]).curve(leg.type === "flight" ? d3.curveBasis : d3.curveLinear);
-        g.append("path").datum(coords).attr("d", lineGen).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 1).attr("opacity", 0.13);
+        g.append("path").datum(coords).attr("d", lineGen).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", isHovered ? 2 : 1).attr("opacity", isHovered ? 0.7 : 0.13);
       });
       const gc = new Map();
       trip.legs?.forEach(l => {
@@ -1059,12 +1075,12 @@ function DashboardMap({ trips, filter, heroTripId }) {
     svg.call(zoom);
     svg.on("dblclick.zoom", null);
     zoomRef.current = zoom;
-  }, [trips, filter, heroTripId, mode]);
+  }, [trips, filter, heroTripId, hoveredTripId, mode]);
 
   useEffect(() => { draw(); const h = () => draw(); window.addEventListener("resize", h); return () => window.removeEventListener("resize", h); }, [draw]);
 
   return (
-    <div ref={containerRef} className="w-full" style={{ height: 195, background: "var(--bg-map)", borderBottom: mode === "day" ? "1px solid var(--border-subtle)" : "none", touchAction: "none" }}>
+    <div ref={containerRef} className="w-full" style={{ height: "100%", minHeight: 195, background: "var(--bg-map)", borderBottom: mode === "day" ? "1px solid var(--border-subtle)" : "none", touchAction: "none" }}>
       <svg ref={svgRef} className="w-full h-full" style={{ cursor: "grab" }} />
     </div>
   );
@@ -1408,12 +1424,14 @@ function FollowingTab({ following, setFollowing, fetchData, navigate, mode }) {
 function DashboardPage() {
   const { navigate } = useRouter();
   const { mode } = useTheme();
+  const isDesktop = useIsDesktop();
   const [filter, setFilter] = useState("all");
   const [tab, setTab] = useState("my_trips");
   const [trips, setTrips] = useState([]);
   const [following, setFollowing] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [hoveredTripId, setHoveredTripId] = useState(null);
 
   const [refreshing, setRefreshing] = useState(false);
   const [badgePulse, setBadgePulse] = useState(false);
@@ -1461,24 +1479,36 @@ function DashboardPage() {
     <div>
       {/* Pull-to-refresh spinner */}
       {refreshing && <div style={{ display: "flex", justifyContent: "center", padding: "12px 0" }}><Spinner /></div>}
-      {/* Tab bar */}
-      <div className="flex gap-6" style={{ padding: "14px 16px 0", borderBottom: "1px solid var(--border-subtle)" }}>
-        {[{ key: "my_trips", label: "MY ITINERARIES" }, { key: "following", label: "FOLLOWING" }].map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)} className="relative pb-3" style={{ fontFamily: FONT, fontSize: "10px", letterSpacing: "3px", fontWeight: tab === t.key ? 500 : 400, color: tab === t.key ? "var(--accent-flight-bright)" : "var(--text-tertiary)", minHeight: 44, display: "flex", alignItems: "center" }}>
-            {t.label}{t.key === "following" && following.length > 0 && (
-              <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 18, height: 18, borderRadius: 9, padding: "0 5px", marginLeft: 6, border: "1px solid var(--accent-flight)", fontFamily: FONT, fontSize: "9px", fontWeight: 600, color: "var(--accent-flight-bright)", animation: badgePulse ? "badge-pulse 0.4s ease-in-out" : "none" }}>{following.length}</span>
-            )}
-            {tab === t.key && <div className="absolute bottom-0 left-0 right-0 h-0.5" style={{ background: "var(--accent-flight-bright)" }} />}
-          </button>
-        ))}
-      </div>
+      {/* Tab bar + filters */}
+      <div style={{ borderBottom: "1px solid var(--border-subtle)" }}>
+        <div className="flex items-center" style={{ padding: isDesktop ? "0 24px" : "14px 16px 0" }}>
+          {/* Tabs */}
+          {[{ key: "my_trips", label: "MY ITINERARIES" }, { key: "following", label: "FOLLOWING" }].map(t => (
+            <button key={t.key} onClick={() => setTab(t.key)} className="relative" style={{ fontFamily: FONT, fontSize: "10px", letterSpacing: "3px", fontWeight: tab === t.key ? 500 : 400, color: tab === t.key ? "var(--accent-flight-bright)" : "var(--text-tertiary)", height: isDesktop ? 48 : 44, display: "flex", alignItems: "center", marginRight: 24, paddingBottom: isDesktop ? 0 : 12 }}>
+              {t.label}{t.key === "following" && following.length > 0 && (
+                <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 18, height: 18, borderRadius: 9, padding: "0 5px", marginLeft: 6, border: "1px solid var(--accent-flight)", fontFamily: FONT, fontSize: "9px", fontWeight: 600, color: "var(--accent-flight-bright)", animation: badgePulse ? "badge-pulse 0.4s ease-in-out" : "none" }}>{following.length}</span>
+              )}
+              {tab === t.key && <div className="absolute bottom-0 left-0 right-0 h-0.5" style={{ background: "var(--accent-flight-bright)" }} />}
+            </button>
+          ))}
 
-      {tab === "following" ? (
-        <FollowingTab following={following} setFollowing={setFollowing} fetchData={fetchDataWithPulse} navigate={navWithScroll} mode={mode} />
-      ) : (
-        <>
-          {/* Filter pills */}
-          <div className="flex" style={{ padding: "10px 16px", borderBottom: "1px solid var(--border-subtle)" }}>
+          {/* Desktop: inline divider + filters */}
+          {isDesktop && tab === "my_trips" && (
+            <>
+              <div style={{ width: 1, height: 16, background: "var(--border-primary)", margin: "0 20px" }} />
+              {filters.map(f => (
+                <button key={f.key} onClick={() => setFilter(f.key)} style={{ padding: "8px 12px", fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: filter === f.key ? "var(--accent-flight-bright)" : "var(--text-tertiary)", position: "relative", height: 48, display: "flex", alignItems: "center", background: "transparent", border: "none", cursor: "pointer" }}>
+                  {f.label}
+                  {filter === f.key && <div className="absolute bottom-0 left-2 right-2 h-px" style={{ background: "var(--accent-flight)" }} />}
+                </button>
+              ))}
+            </>
+          )}
+        </div>
+
+        {/* Mobile: filters on own row */}
+        {!isDesktop && tab === "my_trips" && (
+          <div className="flex" style={{ padding: "10px 16px", borderTop: "1px solid var(--border-subtle)" }}>
             {filters.map(f => (
               <button key={f.key} onClick={() => setFilter(f.key)} className="flex-1 text-center relative" style={{ padding: "8px 0", fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: filter === f.key ? "var(--accent-flight-bright)" : "var(--text-tertiary)", minHeight: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 {f.label}
@@ -1486,12 +1516,209 @@ function DashboardPage() {
               </button>
             ))}
           </div>
+        )}
+      </div>
 
-          {/* Global radar map */}
-          <DashboardMap trips={mapTripsArr} filter={filter} heroTripId={heroTrip?.id} />
+      {tab === "following" ? (
+        isDesktop ? (
+          <div style={{ display: "flex", flex: 1, overflow: "hidden", height: "calc(100vh - 105px)" }}>
+            <div style={{ width: 400, minWidth: 360, flexShrink: 0, borderRight: "1px solid var(--border-primary)", overflowY: "auto", padding: "16px 20px" }}>
+              <FollowingTab following={following} setFollowing={setFollowing} fetchData={fetchDataWithPulse} navigate={navWithScroll} mode={mode} />
+            </div>
+            <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
+              <DashboardMap trips={following} filter="all" heroTripId={null} hoveredTripId={null} />
+            </div>
+          </div>
+        ) : (
+          <FollowingTab following={following} setFollowing={setFollowing} fetchData={fetchDataWithPulse} navigate={navWithScroll} mode={mode} />
+        )
+      ) : (
+        isDesktop ? (
+          <div style={{ display: "flex", flex: 1, overflow: "hidden", height: "calc(100vh - 105px)" }}>
+            <div style={{ width: 400, minWidth: 360, flexShrink: 0, borderRight: "1px solid var(--border-primary)", overflowY: "auto", padding: "16px 20px" }}>
+              {/* Trip cards — desktop left panel */}
+              <div>
+            {trips.length === 0 ? (
+              <button onClick={() => navWithScroll("create")} className="w-full text-left tappable-card" style={{ border: "1px dashed var(--border-primary)", borderRadius: 6, padding: "24px 14px", textAlign: "center" }}>
+                <p style={{ fontFamily: FONT, fontSize: "12px", letterSpacing: "1px", color: "var(--text-secondary)", marginBottom: 8 }}>FILE YOUR FIRST FLIGHT PLAN</p>
+                <p style={{ fontFamily: FONT, fontSize: "16px", fontWeight: 700, letterSpacing: "2px", color: "var(--text-tertiary)", marginBottom: 8 }}>??? {"→"} ???</p>
+                <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>Tap FILE to begin tracking</p>
+              </button>
+            ) : filter === "completed" ? (
+              past.length > 0 ? (
+                <div>
+                  <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-tertiary)", marginBottom: 10 }}>PAST</p>
+                  <div className="flex flex-col gap-2">
+                    {past.map(trip => (
+                      <div key={trip.id} onMouseEnter={() => setHoveredTripId(trip.id)} onMouseLeave={() => setHoveredTripId(null)}>
+                      <button onClick={() => navWithScroll("detail", { tripId: trip.id })} className="w-full text-left tappable-card" style={{ opacity: 0.5, border: "1px solid var(--border-primary)", borderLeft: "3px solid var(--strip-flight)", borderRadius: 6, padding: 14, background: "var(--bg-card)", boxShadow: hoveredTripId === trip.id ? "0 0 0 2px var(--accent-flight)" : "none" }}>
+                        <div className="flex items-center justify-between mb-1">
+                          <h3 style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 600, color: "var(--text-heading)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{trip.title}</h3>
+                        </div>
+                        <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", letterSpacing: "0.5px", marginBottom: 6 }}>{formatDateRange(trip.start_date, trip.end_date)}</p>
+                        <InlineRoute legs={trip.legs} codeSize="14px" />
+                        <div className="mt-2"><DashLegIndicators legs={trip.legs} showTotal={false} /></div>
+                      </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ border: `1px dashed ${mode === "night" ? "var(--border-subtle)" : "var(--border-primary)"}`, borderRadius: 6, padding: "20px 14px", textAlign: "center" }}>
+                  <p style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: "var(--text-tertiary)" }}>NO COMPLETED FLIGHT PLANS</p>
+                </div>
+              )
+            ) : (
+              <>
+                {/* Live Now */}
+                {live.length > 0 && (
+                  <div className="mb-4">
+                    <div className="flex items-center gap-2 mb-2.5">
+                      <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--accent-flight)" }} /><span className="relative inline-flex rounded-full h-2 w-2" style={{ background: "var(--accent-flight)" }} /></span>
+                      <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--accent-flight-bright)", fontWeight: 700 }}>LIVE NOW</p>
+                    </div>
+                    {live.map(trip => {
+                      const liveLeg = trip.legs?.find(l => l.status === "in_air" || l.status === "in_transit");
+                      const livePos = liveLeg ? getLivePos(liveLeg) : null;
+                      return (
+                        <div key={trip.id} onMouseEnter={() => setHoveredTripId(trip.id)} onMouseLeave={() => setHoveredTripId(null)}>
+                        <button onClick={() => navWithScroll("detail", { tripId: trip.id })} className="w-full text-left mb-2 tappable-card" style={{ border: "1px solid var(--border-primary)", borderLeft: "3px solid var(--strip-flight)", borderRadius: 6, padding: 14, background: "var(--bg-card)", boxShadow: hoveredTripId === trip.id ? "0 0 0 2px var(--accent-flight)" : "none" }}>
+                          <div className="flex items-center justify-between mb-2">
+                            <h3 style={{ fontFamily: FONT, fontSize: "16px", fontWeight: 600, color: "var(--text-heading)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{trip.title}</h3>
+                            <span className="inline-flex items-center gap-1.5 px-2 py-1" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: "var(--accent-flight-bright)", border: "1px solid var(--accent-flight)", borderRadius: 4 }}>
+                              <span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--accent-flight)" }} /><span className="relative inline-flex rounded-full h-1.5 w-1.5" style={{ background: "var(--accent-flight)" }} /></span>
+                              EN ROUTE
+                            </span>
+                          </div>
+                          {liveLeg && (
+                            <>
+                              <div className="flex items-center gap-2 mb-2">
+                                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--accent-flight)", display: "inline-block" }} />
+                                <span style={{ fontFamily: FONT, fontSize: "12px", fontWeight: 600, color: "var(--accent-flight-bright)" }}>{liveLeg.origin?.code || "?"} {"→"} {liveLeg.destination?.code || "?"}</span>
+                                {livePos && (
+                                  <div className="flex items-center gap-2 ml-auto">
+                                    <div style={{ width: 80, height: 4, borderRadius: 2, background: "var(--border-primary)", overflow: "hidden" }}>
+                                      <div style={{ width: `${livePos.progress * 100}%`, height: "100%", borderRadius: 2, background: "var(--accent-flight)" }} />
+                                    </div>
+                                    <span style={{ fontFamily: FONT, fontSize: "9px", fontWeight: 700, color: "var(--text-secondary)" }}>{Math.round(livePos.progress * 100)}%</span>
+                                  </div>
+                                )}
+                              </div>
+                              <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)", letterSpacing: "0.5px" }}>
+                                {[liveLeg.carrier, liveLeg.vehicle_number, liveLeg.arrive_time ? `LANDS ${formatTime(liveLeg.arrive_time)}` : null].filter(Boolean).join(" · ")}
+                              </p>
+                            </>
+                          )}
+                        </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
 
-          {/* Trip cards */}
-          <div className="px-4 py-4">
+                {/* Next Departure (hero card) */}
+                {nextDep && (
+                  <div className="mb-4" onMouseEnter={() => setHoveredTripId(nextDep.id)} onMouseLeave={() => setHoveredTripId(null)}>
+                    <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-secondary)", marginBottom: 10, fontWeight: 700 }}>NEXT DEPARTURE</p>
+                    <button onClick={() => navWithScroll("detail", { tripId: nextDep.id })} className="w-full text-left tappable-card" style={{ border: "1px solid var(--border-primary)", borderLeft: "3px solid var(--strip-flight)", borderRadius: 6, padding: 14, background: "var(--bg-card)", boxShadow: hoveredTripId === nextDep.id ? "0 0 0 2px var(--accent-flight)" : "none" }}>
+                      <div className="flex items-center justify-between mb-1">
+                        <h3 style={{ fontFamily: FONT, fontSize: "16px", fontWeight: 600, color: "var(--text-heading)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, marginRight: 8 }}>{nextDep.title}</h3>
+                        <span className="px-2.5 py-1 shrink-0" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: "var(--accent-countdown)", border: "1px solid var(--accent-hotel-dim)", borderRadius: 4, fontWeight: 500 }}>{getCountdown(nextDep).text}</span>
+                      </div>
+                      <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", letterSpacing: "0.5px", marginBottom: 8 }}>{formatDateRange(nextDep.start_date, nextDep.end_date)}</p>
+                      {nextDep.legs?.length > 0 ? (<><div style={{ marginBottom: 8 }}><InlineRoute legs={nextDep.legs} codeSize="16px" /></div>
+                      <DashLegIndicators legs={nextDep.legs} showTotal={true} /></>) : <p style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: "var(--text-tertiary)" }}>NO LEGS FILED</p>}
+                    </button>
+                  </div>
+                )}
+
+                {/* Remaining upcoming (compact cards) */}
+                {otherUpcoming.length > 0 && (
+                  <div className="mb-4">
+                    <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-tertiary)", marginBottom: 10 }}>UPCOMING</p>
+                    <div className="flex flex-col gap-2">
+                      {otherUpcoming.map(trip => {
+                        const ms = trip.legs?.[0]?.depart_time ? new Date(trip.legs[0].depart_time).getTime() - Date.now() : 0;
+                        const days = Math.max(0, Math.floor(ms / 86400000));
+                        const shortCd = ms > 0 ? `T-${days}D` : null;
+                        return (
+                          <div key={trip.id} onMouseEnter={() => setHoveredTripId(trip.id)} onMouseLeave={() => setHoveredTripId(null)}>
+                          <button onClick={() => navWithScroll("detail", { tripId: trip.id })} className="w-full text-left tappable-card" style={{ opacity: mode === "day" ? 0.55 : 0.65, border: "1px solid var(--border-primary)", borderLeft: "3px solid var(--strip-flight)", borderRadius: 6, padding: 14, background: "var(--bg-card)", boxShadow: hoveredTripId === trip.id ? "0 0 0 2px var(--accent-flight)" : "none" }}>
+                            <div className="flex items-center justify-between mb-1">
+                              <h3 style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 600, color: "var(--text-heading)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, marginRight: 8 }}>{trip.title}</h3>
+                              {shortCd && <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{shortCd}</span>}
+                            </div>
+                            <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", letterSpacing: "0.5px", marginBottom: 6 }}>{formatDateRange(trip.start_date, trip.end_date)}</p>
+                            {trip.legs?.length > 0 ? (<><InlineRoute legs={trip.legs} codeSize="14px" /><div className="mt-2"><DashLegIndicators legs={trip.legs} showTotal={false} /></div></>) : <p style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: "var(--text-tertiary)" }}>NO LEGS FILED</p>}
+                          </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Past (when ALL filter) */}
+                {filter === "all" && past.length > 0 && (
+                  <div>
+                    <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-tertiary)", marginBottom: 10 }}>PAST</p>
+                    <div className="flex flex-col gap-2">
+                      {past.map(trip => (
+                        <div key={trip.id} onMouseEnter={() => setHoveredTripId(trip.id)} onMouseLeave={() => setHoveredTripId(null)}>
+                        <button onClick={() => navWithScroll("detail", { tripId: trip.id })} className="w-full text-left" style={{ opacity: 0.5, border: "1px solid var(--border-primary)", borderLeft: "3px solid var(--strip-flight)", borderRadius: 6, padding: 14, background: "var(--bg-card)", boxShadow: hoveredTripId === trip.id ? "0 0 0 2px var(--accent-flight)" : "none" }}>
+                          <div className="flex items-center justify-between mb-1">
+                            <h3 style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 600, color: "var(--text-heading)" }}>{trip.title}</h3>
+                          </div>
+                          <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", letterSpacing: "0.5px", marginBottom: 6 }}>{formatDateRange(trip.start_date, trip.end_date)}</p>
+                          <InlineRoute legs={trip.legs} codeSize="14px" />
+                          <div className="mt-2"><DashLegIndicators legs={trip.legs} showTotal={false} /></div>
+                        </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Empty states */}
+                {filter === "upcoming" && live.length === 0 && upcoming.length === 0 && (
+                  <div style={{ border: `1px dashed ${mode === "night" ? "var(--border-subtle)" : "var(--border-primary)"}`, borderRadius: 6, padding: "20px 14px", textAlign: "center" }}>
+                    <p style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: "var(--text-tertiary)" }}>NO UPCOMING FLIGHT PLANS</p>
+                  </div>
+                )}
+                {filter === "all" && live.length === 0 && upcoming.length === 0 && past.length === 0 && trips.length > 0 && (
+                  <div style={{ border: "1px dashed var(--border-primary)", borderRadius: 6, padding: "20px 14px", textAlign: "center" }}>
+                    <p style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: "var(--text-tertiary)" }}>NO TRIPS MATCH THIS FILTER</p>
+                  </div>
+                )}
+              </>
+            )}
+              </div>
+            </div>
+            <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
+              <DashboardMap trips={mapTripsArr} filter={filter} heroTripId={heroTrip?.id} hoveredTripId={hoveredTripId} />
+              <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--text-tertiary)" }}>
+                {trips.length} FLIGHT PLAN{trips.length !== 1 ? "S" : ""} FILED
+              </div>
+              {hoveredTripId && (() => {
+                const ht = trips.find(t => t.id === hoveredTripId);
+                if (!ht) return null;
+                return (
+                  <div style={{ position: "absolute", bottom: 20, right: 20, background: "var(--bg-primary)", border: "1px solid var(--border-primary)", borderRadius: 8, padding: "12px 16px", maxWidth: 240, boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}>
+                    <p style={{ fontFamily: FONT, fontSize: "11px", fontWeight: 600, color: "var(--text-heading)", marginBottom: 4 }}>{ht.title}</p>
+                    <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", marginBottom: 2 }}>{formatDateRange(ht.start_date, ht.end_date)}</p>
+                    <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{ht.legs?.length || 0} legs</p>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Mobile: Global radar map */}
+            <DashboardMap trips={mapTripsArr} filter={filter} heroTripId={heroTrip?.id} />
+
+            {/* Mobile: Trip cards */}
+            <div className="px-4 py-4">
             {trips.length === 0 ? (
               <button onClick={() => navWithScroll("create")} className="w-full text-left tappable-card" style={{ border: "1px dashed var(--border-primary)", borderRadius: 6, padding: "24px 14px", textAlign: "center" }}>
                 <p style={{ fontFamily: FONT, fontSize: "12px", letterSpacing: "1px", color: "var(--text-secondary)", marginBottom: 8 }}>FILE YOUR FIRST FLIGHT PLAN</p>
@@ -1522,7 +1749,6 @@ function DashboardPage() {
               )
             ) : (
               <>
-                {/* Live Now */}
                 {live.length > 0 && (
                   <div className="mb-4">
                     <div className="flex items-center gap-2 mb-2.5">
@@ -1565,8 +1791,6 @@ function DashboardPage() {
                     })}
                   </div>
                 )}
-
-                {/* Next Departure (hero card) */}
                 {nextDep && (
                   <div className="mb-4">
                     <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-secondary)", marginBottom: 10, fontWeight: 700 }}>NEXT DEPARTURE</p>
@@ -1581,8 +1805,6 @@ function DashboardPage() {
                     </button>
                   </div>
                 )}
-
-                {/* Remaining upcoming (compact cards) */}
                 {otherUpcoming.length > 0 && (
                   <div className="mb-4">
                     <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-tertiary)", marginBottom: 10 }}>UPCOMING</p>
@@ -1605,8 +1827,6 @@ function DashboardPage() {
                     </div>
                   </div>
                 )}
-
-                {/* Past (when ALL filter) */}
                 {filter === "all" && past.length > 0 && (
                   <div>
                     <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-tertiary)", marginBottom: 10 }}>PAST</p>
@@ -1624,8 +1844,6 @@ function DashboardPage() {
                     </div>
                   </div>
                 )}
-
-                {/* Empty states */}
                 {filter === "upcoming" && live.length === 0 && upcoming.length === 0 && (
                   <div style={{ border: `1px dashed ${mode === "night" ? "var(--border-subtle)" : "var(--border-primary)"}`, borderRadius: 6, padding: "20px 14px", textAlign: "center" }}>
                     <p style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: "var(--text-tertiary)" }}>NO UPCOMING FLIGHT PLANS</p>
@@ -1638,8 +1856,9 @@ function DashboardPage() {
                 )}
               </>
             )}
-          </div>
-        </>
+            </div>
+          </>
+        )
       )}
     </div>
   );
@@ -2038,6 +2257,7 @@ function SatelliteMap({ trip, height = 280 }) {
 function DetailPage({ tripId }) {
   const { navigate } = useRouter();
   const { mode } = useTheme();
+  const isDesktop = useIsDesktop();
   const [trip, setTrip] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeLeg, setActiveLeg] = useState(0);
@@ -2082,7 +2302,7 @@ function DetailPage({ tripId }) {
   const removeLeg = async (legId) => { try { await api(`/trips/${trip.id}/legs/${legId}`, { method: "DELETE" }); setTrip(prev => ({ ...prev, legs: prev.legs.filter(l => l.id !== legId) })); setConfirmDelete(null); } catch (e) { alert(e.message); } };
   const moveLeg = async (index, dir) => { const newIdx = index + dir; if (newIdx < 0 || newIdx >= trip.legs.length) return; const legs = [...trip.legs]; [legs[index], legs[newIdx]] = [legs[newIdx], legs[index]]; setTrip(prev => ({ ...prev, legs })); setActiveLeg(newIdx); try { await api(`/trips/${trip.id}/legs/reorder`, { method: "PUT", body: JSON.stringify({ leg_ids: legs.map(l => l.id) }) }); } catch (e) { fetchTrip(); } };
   const [queryDisabled, setQueryDisabled] = useState(false);
-  const handleQuery = async () => { if (!bFN.trim() || queryDisabled) return; setBLoading(true); setBErr(null); setBAF(null); try { const r = await api(`/flights/lookup?callsign=${bFN.trim().toUpperCase()}`); setBAF(mapFlightLookup(r)); } catch (e) { if (e?.message?.includes("429") || e?.message?.toLowerCase().includes("rate")) { setBErr("STAND BY \u2014 too many lookups. Try again in a moment."); setQueryDisabled(true); setTimeout(() => setQueryDisabled(false), 10000); } else { setBErr("NO MATCH \u2014 verify callsign"); } } setBLoading(false); };
+  const handleQuery = async () => { if (!bFN.trim() || queryDisabled) return; setBLoading(true); setBErr(null); setBAF(null); try { const r = await api(`/flights/lookup?callsign=${bFN.trim().toUpperCase()}${bDt ? `&date=${bDt}` : ""}`); setBAF(mapFlightLookup(r)); } catch (e) { if (e?.message?.includes("429") || e?.message?.toLowerCase().includes("rate")) { setBErr("STAND BY \u2014 too many lookups. Try again in a moment."); setQueryDisabled(true); setTimeout(() => setQueryDisabled(false), 10000); } else { setBErr("NO MATCH \u2014 verify callsign"); } } setBLoading(false); };
   const canConfirm = () => { if (bType === "flight") return !!bAF; if (bType === "hotel") return bHN.trim() && bHI; return bO.trim() && bD.trim() && bDt; };
 
   const addLeg = async () => {
@@ -2108,205 +2328,233 @@ function DetailPage({ tripId }) {
   const countdown = getCountdown(trip);
   const segmentCount = (trip.legs || []).filter(l => l.type !== "hotel").length;
 
-  return (
-    <div className="min-h-[calc(100vh-48px)] sm:min-h-[calc(100vh-53px)]" style={{ background: "var(--bg-primary)" }}>
-      {showShare && <SquawkModal trip={trip} onClose={() => setShowShare(false)} />}
-
-      {/* Nav bar */}
-      <div className="flex items-center justify-between px-4 py-2">
-        <button onClick={() => navigate("dashboard")} className="flex items-center justify-center" style={{ width: 44, height: 44, border: "1px solid var(--nav-border)", borderRadius: 8, background: "var(--nav-bg)", color: "var(--nav-text-active)", fontFamily: FONT, fontSize: "16px" }}>{"\u2190"}</button>
-        <div className="flex gap-1.5">
-          {editing ? (
-            <>
-              <button onClick={cancelEdit} className="flex items-center justify-center px-4" style={{ height: 44, border: "1px solid var(--nav-border)", borderRadius: 8, background: "var(--nav-bg)", color: "var(--nav-text)", fontFamily: FONT, fontSize: "10px", letterSpacing: "2px", fontWeight: 700 }}>CANCEL</button>
-              <button onClick={saveEdit} disabled={saving} className="flex items-center justify-center px-4" style={{ height: 44, border: "1px solid var(--accent-flight)", borderRadius: 8, background: "var(--accent-flight)", color: "var(--bg-primary)", fontFamily: FONT, fontSize: "10px", letterSpacing: "2px", fontWeight: 700 }}>{saving ? <Spinner /> : "SAVE"}</button>
-            </>
-          ) : (
-            <>
-              <button onClick={enterEdit} className="flex items-center justify-center px-4" style={{ height: 44, border: "1px solid var(--nav-border)", borderRadius: 8, background: "var(--nav-bg)", color: "var(--nav-text)", fontFamily: FONT, fontSize: "10px", letterSpacing: "2px", fontWeight: 700 }}>EDIT</button>
-              <button onClick={() => setShowShare(true)} className="flex items-center justify-center px-4" style={{ height: 44, border: "1px solid var(--accent-flight)", borderRadius: 8, background: "var(--squawk-bg)", color: "var(--squawk-text)", fontFamily: FONT, fontSize: "10px", letterSpacing: "2px", fontWeight: 700 }}>SQUAWK</button>
-            </>
-          )}
-        </div>
+  const itineraryContent = (
+    <>
+      <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-secondary)", marginBottom: 12, fontWeight: 700 }}>FLIGHT PLAN {"\u00B7"} {trip.legs?.length || 0} WAYPOINTS</p>
+      <div className="flex flex-col">
+        {trip.legs?.map((leg, i) => {
+          const isHotel = leg.type === "hotel";
+          const isLive = leg.status === "in_air" || leg.status === "in_transit";
+          const stripColor = STRIP_COLORS[leg.type] || "var(--strip-flight)";
+          const isDeleting = confirmDelete === leg.id;
+          const cardBg = isHotel ? "var(--bg-card-hotel)" : "var(--bg-card)";
+          const dur = isHotel ? "" : formatDuration(leg.depart_time, leg.arrive_time, leg.origin, leg.destination);
+          const nights = isHotel ? calcNights(leg) : 0;
+          return (
+            <div key={leg.id} className="flex">
+              <div className="flex flex-col items-center" style={{ width: 28 }}>
+                <div className="flex items-center justify-center" style={{ width: isHotel ? 8 : 10, height: isHotel ? 8 : 10, borderRadius: "50%", border: `2px solid ${isHotel ? "var(--strip-hotel)" : "var(--timeline-dot-border)"}`, background: "var(--timeline-dot-bg)", flexShrink: 0 }} />
+                {i < trip.legs.length - 1 && <div style={{ width: 1.5, flex: 1, background: "var(--timeline-rail)", minHeight: 20 }} />}
+              </div>
+              <div className="flex-1 mb-2 ml-2" style={{ borderLeft: `3px solid ${stripColor}`, borderRadius: "4px", padding: "12px", background: cardBg }}>
+                {isDeleting ? (
+                  <div className="flex items-center justify-between">
+                    <span style={{ fontFamily: FONT, fontSize: "11px", fontWeight: 700, color: "var(--accent-flight)" }}>Remove this leg?</span>
+                    <div className="flex gap-2">
+                      <button onClick={() => setConfirmDelete(null)} style={{ fontFamily: FONT, fontSize: "9px", fontWeight: 700, color: "var(--text-secondary)", letterSpacing: "1px" }}>KEEP</button>
+                      <button onClick={() => removeLeg(leg.id)} className="px-2.5 py-1 rounded" style={{ fontFamily: FONT, fontSize: "9px", fontWeight: 700, background: "var(--accent-flight)", color: "var(--bg-primary)", letterSpacing: "1px" }}>REMOVE</button>
+                    </div>
+                  </div>
+                ) : isHotel ? (
+                  <>
+                    <div className="flex items-center justify-between mb-1">
+                      <span style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: "var(--accent-hotel)", fontWeight: 700 }}>GROUND STOP {"\u00B7"} {nights}N</span>
+                      <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{formatDate(leg.depart_time)}{leg.arrive_time ? ` \u2013 ${formatDate(leg.arrive_time)}` : ""}</span>
+                    </div>
+                    <p style={{ fontFamily: FONT, fontSize: mode === "night" ? "16px" : "14px", fontWeight: 600, color: "var(--accent-hotel-text)", marginBottom: 2 }}>{leg.carrier}</p>
+                    <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--accent-hotel-dim)" }}>
+                      {leg.origin?.city ? leg.origin.city.toUpperCase() : ""}{nights ? ` \u00B7 ${nights} NIGHTS` : ""}
+                    </p>
+                    {editing && !isLive && (
+                      <div className="flex items-center gap-1 mt-2 pt-2" style={{ borderTop: "1px solid var(--border-hotel)" }}>
+                        {i > 0 && <button onClick={e => { e.stopPropagation(); moveLeg(i, -1); }} className="p-1" style={{ color: "var(--text-secondary)" }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 15l-6-6-6 6"/></svg></button>}
+                        {i < trip.legs.length - 1 && <button onClick={e => { e.stopPropagation(); moveLeg(i, 1); }} className="p-1" style={{ color: "var(--text-secondary)" }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9l6 6 6-6"/></svg></button>}
+                        <button onClick={e => { e.stopPropagation(); setConfirmDelete(leg.id); }} className="p-1 ml-auto" style={{ color: "var(--text-secondary)" }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: stripColor, fontWeight: 700 }}>{leg.type.toUpperCase()} {"\u00B7"} {leg.vehicle_number || leg.carrier}</span>
+                        {isLive && <span className="inline-flex items-center gap-1"><span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--accent-flight)" }} /><span className="relative inline-flex rounded-full h-1.5 w-1.5" style={{ background: "var(--accent-flight)" }} /></span><span style={{ fontFamily: FONT, fontSize: "8px", fontWeight: 700, color: "var(--accent-flight-bright)" }}>LIVE</span></span>}
+                      </div>
+                      <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{formatDate(leg.depart_time)}</span>
+                    </div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span style={{ fontFamily: FONT, fontSize: "24px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "2px" }}>{leg.origin?.code || leg.origin?.city?.slice(0, 3)?.toUpperCase() || "?"}</span>
+                      <div className="flex flex-col items-center flex-1 mx-3">
+                        <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{dur}</span>
+                        <div style={{ width: "100%", height: 0, borderTop: "1px solid var(--border-subtle)", marginTop: 4 }} />
+                      </div>
+                      <span style={{ fontFamily: FONT, fontSize: "24px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "2px" }}>{leg.destination?.code || leg.destination?.city?.slice(0, 3)?.toUpperCase() || "?"}</span>
+                    </div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{formatTime(leg.actual_depart || leg.depart_time)} LOCAL</span>
+                      <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{formatTime(leg.arrive_time)} LOCAL</span>
+                    </div>
+                    {(leg.vehicle_number || leg.carrier || Object.keys(leg.metadata || {}).length > 0) && (
+                      <div className="flex items-center justify-between pt-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+                        <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{[leg.vehicle_number, leg.carrier].filter(Boolean).join(" \u00B7 ")}</span>
+                        <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{[leg.metadata?.seat ? `SEAT ${leg.metadata.seat}` : null, leg.metadata?.terminal ? `T-${leg.metadata.terminal}` : null, leg.metadata?.gate ? `G${leg.metadata.gate}` : null].filter(Boolean).join(" \u00B7 ")}</span>
+                      </div>
+                    )}
+                    {editing && !isLive && (
+                      <div className="flex items-center gap-1 mt-2 pt-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+                        {i > 0 && <button onClick={e => { e.stopPropagation(); moveLeg(i, -1); }} className="p-1" style={{ color: "var(--text-secondary)" }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 15l-6-6-6 6"/></svg></button>}
+                        {i < trip.legs.length - 1 && <button onClick={e => { e.stopPropagation(); moveLeg(i, 1); }} className="p-1" style={{ color: "var(--text-secondary)" }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9l6 6 6-6"/></svg></button>}
+                        <button onClick={e => { e.stopPropagation(); setConfirmDelete(leg.id); }} className="p-1 ml-auto" style={{ color: "var(--text-secondary)" }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
+      {editing && (
+        <div className="mt-3">
+          {showLegBuilder ? (
+            <div className="border rounded" style={{ background: "var(--bg-surface)", borderColor: "var(--border-primary)" }}>
+              <div className="flex border-b" style={{ borderColor: "var(--border-primary)" }}>{Object.entries(typeCfg).map(([k, v]) => <button key={k} onClick={() => { setBType(k); resetBuilder(); }} className="flex-1 py-2 text-xs font-bold tracking-widest relative" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: bType === k ? v.color : "var(--text-secondary)", background: "transparent" }}>{v.label}{bType === k && <div className="absolute bottom-0 left-0 right-0 h-px" style={{ background: v.color }} />}</button>)}</div>
+              <div className="p-3">
+                {bType === "flight" && (<><div className="flex flex-col sm:flex-row gap-2 mb-2"><div className="flex-1"><Label>CALLSIGN</Label><Input type="text" value={bFN} onChange={e => { setBFN(e.target.value); setBAF(null); setBErr(null); }} onKeyDown={e => e.key === "Enter" && handleQuery()} placeholder="DL484" style={{ textTransform: "uppercase", letterSpacing: "1px" }} /></div><div className="flex-1"><Label>DATE</Label><DatePicker value={bDt} onChange={setBDt} /></div><div className="flex items-end"><button onClick={handleQuery} disabled={bLoading || !bFN.trim()} className="w-full sm:w-auto px-4 py-2.5 rounded text-xs font-bold tracking-widest" style={{ background: bFN.trim() ? "var(--bg-surface)" : "var(--bg-surface)", color: bFN.trim() ? "var(--accent-flight)" : "var(--text-tertiary)", border: "1px solid var(--border-primary)", fontFamily: FONT, fontSize: "9px" }}>{bLoading ? <Spinner /> : "QUERY"}</button></div></div>{bAF && <div className="rounded border p-2.5 mb-2" style={{ background: "var(--bg-surface)", borderColor: "var(--accent-flight)" }}><div className="flex items-center gap-2 mb-1"><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--accent-flight)" }} /><span className="relative inline-flex rounded-full h-2 w-2" style={{ background: "var(--accent-flight)" }} /></span><span className="text-xs font-bold" style={{ color: "var(--accent-flight)", fontFamily: FONT, fontSize: "9px" }}>MATCH</span></div><div className="grid grid-cols-2 gap-x-4 gap-y-0.5">{[["CARRIER", bAF.carrier], ["ROUTE", `${bAF.origin.code} \u2192 ${bAF.destination.code}`], ["DEP", formatTime(bAF.origin.scheduled)], ["ARR", formatTime(bAF.destination.scheduled)]].map(([l, v]) => <div key={l} className="flex items-baseline gap-1.5"><span className="text-xs" style={{ color: "var(--text-secondary)", fontFamily: FONT, fontSize: "8px", minWidth: 40 }}>{l}</span><span className="text-xs" style={{ color: "var(--text-primary)", fontFamily: FONT }}>{v}</span></div>)}</div></div>}{bErr && <p className="mb-2 text-xs font-bold" style={{ color: "var(--accent-flight)", fontFamily: FONT, fontSize: "9px" }}>{bErr}</p>}</>)}
+                {bType === "hotel" && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><div className="sm:col-span-2"><Label>PROPERTY</Label><PlaceAutocomplete value={bHN} onChange={setBHN} onSelect={(p) => setBHPlace(p)} placeholder="Park Hyatt Tokyo" types="lodging" />{bHPlace && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{bHPlace.address}</p>}{bHPlace?.lat && <div className="mt-2"><MiniMap lat={bHPlace.lat} lng={bHPlace.lng} zoom={15} height={100} label={bHPlace.name || bHN} /></div>}</div><div><Label>CONF NO.</Label><Input value={bHC} onChange={e => setBHC(e.target.value)} placeholder="Optional" /></div><div style={{}}></div><div><Label>CHECK-IN</Label><DatePicker value={bHI} onChange={setBHI} /></div><div><Label>CHECK-OUT</Label><DatePicker value={bHO} onChange={setBHO} /></div></div>}
+                {(bType === "train" || bType === "bus") && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><div><Label>ORIGIN</Label><PlaceAutocomplete value={bO} onChange={setBO} onSelect={(p) => setBOPlace(p)} placeholder="Penn Station, NYC" types="transit_station|train_station|locality" />{bOPlace && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{bOPlace.address}</p>}</div><div><Label>DEST</Label><PlaceAutocomplete value={bD} onChange={setBD} onSelect={(p) => setBDPlace(p)} placeholder="Union Station, DC" types="transit_station|train_station|locality" />{bDPlace && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{bDPlace.address}</p>}</div><div><Label>DATE</Label><DatePicker value={bDt} onChange={setBDt} /></div><div><Label>TIME (OPT)</Label><Input type="time" value={bTm} onChange={e => setBTm(e.target.value)} /></div></div>}
+                <div className="flex items-center justify-between mt-3 pt-3 pb-1" style={{ borderTop: "1px solid var(--border-primary)", position: "sticky", bottom: 0, background: "var(--bg-surface)", zIndex: 2 }}><button onClick={() => { setShowLegBuilder(false); resetBuilder(); }} className="px-4 py-3 rounded text-xs font-bold tracking-widest" style={{ color: "var(--text-secondary)", fontFamily: FONT, fontSize: "10px" }}>CANCEL</button><button onClick={addLeg} disabled={!canConfirm()} className="px-6 py-3 rounded text-xs font-bold tracking-widest" style={{ background: canConfirm() ? "var(--accent-flight)" : "var(--bg-surface)", color: canConfirm() ? "var(--bg-primary)" : "var(--text-tertiary)", fontFamily: FONT, fontSize: "10px" }}>ADD LEG</button></div>
+              </div>
+            </div>
+          ) : <button onClick={() => { resetBuilder(); setShowLegBuilder(true); }} className="w-full py-3 rounded border border-dashed text-xs font-bold tracking-widest" style={{ borderColor: "var(--accent-hotel-dim)", color: "var(--accent-hotel)", fontFamily: FONT, fontSize: "9px", letterSpacing: "2px" }}>+ ADD LEG</button>}
+        </div>
+      )}
+    </>
+  );
 
-      {/* Trip header */}
-      <div className="px-4 pb-3">
-        {editing ? (
-          <div className="mb-3">
-            <div className="mb-3"><Label>DESIGNATION</Label><input type="text" value={editTitle} onChange={e => setEditTitle(e.target.value)} className="w-full px-0 py-1.5 border-0 border-b outline-none text-sm font-bold" style={{ background: "transparent", borderColor: "var(--border-primary)", color: "var(--text-heading)", fontFamily: FONT }} /></div>
-            <div className="grid grid-cols-2 gap-3"><div><Label>DEPART</Label><DatePicker value={editStart} onChange={setEditStart} /></div><div><Label>RETURN</Label><DatePicker value={editEnd} onChange={setEditEnd} /></div></div>
+  const deleteSection = editing ? (
+    <div style={{ padding: "8px 16px 24px", textAlign: "center" }}>
+      {showDeleteTrip ? (
+        <div>
+          <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", lineHeight: 1.5, marginBottom: 12 }}>This will permanently delete this trip and all its legs.</p>
+          <div style={{ display: "flex", justifyContent: "center", gap: 10 }}>
+            <button onClick={() => { setShowDeleteTrip(false); setDeleteError(null); }} style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: "var(--text-secondary)", padding: "10px 20px", border: "1px solid var(--border-primary)", borderRadius: 6, background: "transparent", cursor: "pointer", minHeight: 44 }}>CANCEL</button>
+            <button onClick={deleteTrip} disabled={deletingTrip} style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: "#fff", padding: "10px 20px", background: "#e84233", borderRadius: 6, border: "none", cursor: "pointer", minHeight: 44 }}>{deletingTrip ? <Spinner /> : "DELETE"}</button>
           </div>
+          {deleteError && <p style={{ fontFamily: FONT, fontSize: "9px", color: "#e84233", marginTop: 8 }}>{deleteError}</p>}
+        </div>
+      ) : (
+        <button onClick={() => setShowDeleteTrip(true)} style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: "#e84233", background: "transparent", border: "none", cursor: "pointer", padding: "16px 0", minHeight: 44 }}>DELETE FLIGHT PLAN</button>
+      )}
+    </div>
+  ) : null;
+
+  const detailNavBar = (
+    <div className="flex items-center justify-between px-4 py-2">
+      <button onClick={() => navigate("dashboard")} className="flex items-center justify-center" style={{ width: 44, height: 44, border: "1px solid var(--nav-border)", borderRadius: 8, background: "var(--nav-bg)", color: "var(--nav-text-active)", fontFamily: FONT, fontSize: "16px" }}>{"\u2190"}</button>
+      <div className="flex gap-1.5">
+        {editing ? (
+          <>
+            <button onClick={cancelEdit} className="flex items-center justify-center px-4" style={{ height: 44, border: "1px solid var(--nav-border)", borderRadius: 8, background: "var(--nav-bg)", color: "var(--nav-text)", fontFamily: FONT, fontSize: "10px", letterSpacing: "2px", fontWeight: 700 }}>CANCEL</button>
+            <button onClick={saveEdit} disabled={saving} className="flex items-center justify-center px-4" style={{ height: 44, border: "1px solid var(--accent-flight)", borderRadius: 8, background: "var(--accent-flight)", color: "var(--bg-primary)", fontFamily: FONT, fontSize: "10px", letterSpacing: "2px", fontWeight: 700 }}>{saving ? <Spinner /> : "SAVE"}</button>
+          </>
         ) : (
           <>
-            <div className="flex items-center justify-between mb-1">
-              <span style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--accent-flight)", fontWeight: 700 }}>{countdown.label}</span>
-              <span className="px-2.5 py-1" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: status === "live" || status === "active" ? "var(--accent-flight-bright)" : "var(--accent-countdown)", border: `1px solid ${status === "live" || status === "active" ? "var(--accent-flight)" : "var(--accent-hotel-dim)"}`, borderRadius: 4, fontWeight: 500 }}>{countdown.text}</span>
-            </div>
-            <h1 style={{ fontFamily: FONT, fontSize: "20px", fontWeight: 600, color: "var(--text-heading)", marginBottom: 4 }}>{trip.title}</h1>
-            <p style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)", letterSpacing: "0.5px" }}>
-              {formatDateRange(trip.start_date, trip.end_date)}{trip.legs?.length ? ` \u00B7 ${trip.legs.length} LEGS` : ""}{segmentCount ? ` \u00B7 ${segmentCount} SEGMENTS` : ""}
-            </p>
+            <button onClick={enterEdit} className="flex items-center justify-center px-4" style={{ height: 44, border: "1px solid var(--nav-border)", borderRadius: 8, background: "var(--nav-bg)", color: "var(--nav-text)", fontFamily: FONT, fontSize: "10px", letterSpacing: "2px", fontWeight: 700 }}>EDIT</button>
+            <button onClick={() => setShowShare(true)} className="flex items-center justify-center px-4" style={{ height: 44, border: "1px solid var(--accent-flight)", borderRadius: 8, background: "var(--squawk-bg)", color: "var(--squawk-text)", fontFamily: FONT, fontSize: "10px", letterSpacing: "2px", fontWeight: 700 }}>SQUAWK</button>
           </>
         )}
       </div>
+    </div>
+  );
 
-      {/* Route summary */}
-      {!editing && <div className="px-4 pb-3"><RouteSummaryBar legs={trip.legs} /></div>}
-
-      {/* Map mode toggle */}
-      <div style={{ display: "flex", justifyContent: "flex-end", padding: "0 16px 4px" }}>
-        <div style={{ display: "inline-flex", border: "1px solid var(--border-primary)", borderRadius: 6, overflow: "hidden" }}>
-          {[{ key: "radar", label: "RADAR" }, { key: "satellite", label: "SATELLITE" }].map(v => (
-            <button key={v.key} onClick={() => setMapView(v.key)}
-              style={{ padding: "6px 12px", fontFamily: FONT, fontSize: "8px", letterSpacing: "1.5px", fontWeight: mapView === v.key ? 500 : 400,
-                background: mapView === v.key ? "var(--accent-flight)" : "transparent",
-                color: mapView === v.key ? "var(--bg-primary)" : "var(--text-tertiary)",
-                border: "none", cursor: "pointer", minHeight: 32 }}>
-              {v.label}
-            </button>
-          ))}
+  const detailHeader = (
+    <div style={{ padding: isDesktop ? "20px 24px 16px" : undefined }} className={isDesktop ? "" : "px-4 pb-3"}>
+      {editing ? (
+        <div className="mb-3">
+          <div className="mb-3"><Label>DESIGNATION</Label><input type="text" value={editTitle} onChange={e => setEditTitle(e.target.value)} className="w-full px-0 py-1.5 border-0 border-b outline-none text-sm font-bold" style={{ background: "transparent", borderColor: "var(--border-primary)", color: "var(--text-heading)", fontFamily: FONT }} /></div>
+          <div className="grid grid-cols-2 gap-3"><div><Label>DEPART</Label><DatePicker value={editStart} onChange={setEditStart} /></div><div><Label>RETURN</Label><DatePicker value={editEnd} onChange={setEditEnd} /></div></div>
         </div>
-      </div>
-
-      {/* Map */}
-      <div style={{ height: "260px", minHeight: "200px" }}>
-        {mapView === "satellite" ? (
-          <SatelliteMap trip={trip} height={260} />
-        ) : (
-          <TripMap trip={trip} activeLegIndex={activeLeg} mode={mode} />
-        )}
-      </div>
-
-      {/* Itinerary section */}
-      <div className="px-4 pt-4 pb-2">
-        <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-secondary)", marginBottom: 12, fontWeight: 700 }}>FLIGHT PLAN {"\u00B7"} {trip.legs?.length || 0} WAYPOINTS</p>
-
-        <div className="flex flex-col">
-          {trip.legs?.map((leg, i) => {
-            const isHotel = leg.type === "hotel";
-            const isLive = leg.status === "in_air" || leg.status === "in_transit";
-            const stripColor = STRIP_COLORS[leg.type] || "var(--strip-flight)";
-            const isDeleting = confirmDelete === leg.id;
-            const cardBg = isHotel ? "var(--bg-card-hotel)" : "var(--bg-card)";
-            const dur = isHotel ? "" : formatDuration(leg.depart_time, leg.arrive_time, leg.origin, leg.destination);
-            const nights = isHotel ? calcNights(leg) : 0;
-
-            return (
-              <div key={leg.id} className="flex">
-                {/* Timeline rail */}
-                <div className="flex flex-col items-center" style={{ width: 28 }}>
-                  <div className="flex items-center justify-center" style={{ width: isHotel ? 8 : 10, height: isHotel ? 8 : 10, borderRadius: "50%", border: `2px solid ${isHotel ? "var(--strip-hotel)" : "var(--timeline-dot-border)"}`, background: "var(--timeline-dot-bg)", flexShrink: 0 }} />
-                  {i < trip.legs.length - 1 && <div style={{ width: 1.5, flex: 1, background: "var(--timeline-rail)", minHeight: 20 }} />}
-                </div>
-
-                {/* Card */}
-                <div className="flex-1 mb-2 ml-2" style={{ borderLeft: `3px solid ${stripColor}`, borderRadius: "4px", padding: "12px", background: cardBg }}>
-                  {isDeleting ? (
-                    <div className="flex items-center justify-between">
-                      <span style={{ fontFamily: FONT, fontSize: "11px", fontWeight: 700, color: "var(--accent-flight)" }}>Remove this leg?</span>
-                      <div className="flex gap-2">
-                        <button onClick={() => setConfirmDelete(null)} style={{ fontFamily: FONT, fontSize: "9px", fontWeight: 700, color: "var(--text-secondary)", letterSpacing: "1px" }}>KEEP</button>
-                        <button onClick={() => removeLeg(leg.id)} className="px-2.5 py-1 rounded" style={{ fontFamily: FONT, fontSize: "9px", fontWeight: 700, background: "var(--accent-flight)", color: "var(--bg-primary)", letterSpacing: "1px" }}>REMOVE</button>
-                      </div>
-                    </div>
-                  ) : isHotel ? (
-                    <>
-                      <div className="flex items-center justify-between mb-1">
-                        <span style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: "var(--accent-hotel)", fontWeight: 700 }}>GROUND STOP {"\u00B7"} {nights}N</span>
-                        <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{formatDate(leg.depart_time)}{leg.arrive_time ? ` \u2013 ${formatDate(leg.arrive_time)}` : ""}</span>
-                      </div>
-                      <p style={{ fontFamily: FONT, fontSize: mode === "night" ? "16px" : "14px", fontWeight: 600, color: "var(--accent-hotel-text)", marginBottom: 2 }}>{leg.carrier}</p>
-                      <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--accent-hotel-dim)" }}>
-                        {leg.origin?.city ? leg.origin.city.toUpperCase() : ""}{nights ? ` \u00B7 ${nights} NIGHTS` : ""}
-                      </p>
-                      {editing && !isLive && (
-                        <div className="flex items-center gap-1 mt-2 pt-2" style={{ borderTop: "1px solid var(--border-hotel)" }}>
-                          {i > 0 && <button onClick={e => { e.stopPropagation(); moveLeg(i, -1); }} className="p-1" style={{ color: "var(--text-secondary)" }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 15l-6-6-6 6"/></svg></button>}
-                          {i < trip.legs.length - 1 && <button onClick={e => { e.stopPropagation(); moveLeg(i, 1); }} className="p-1" style={{ color: "var(--text-secondary)" }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9l6 6 6-6"/></svg></button>}
-                          <button onClick={e => { e.stopPropagation(); setConfirmDelete(leg.id); }} className="p-1 ml-auto" style={{ color: "var(--text-secondary)" }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <span style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: stripColor, fontWeight: 700 }}>{leg.type.toUpperCase()} {"\u00B7"} {leg.vehicle_number || leg.carrier}</span>
-                          {isLive && <span className="inline-flex items-center gap-1"><span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--accent-flight)" }} /><span className="relative inline-flex rounded-full h-1.5 w-1.5" style={{ background: "var(--accent-flight)" }} /></span><span style={{ fontFamily: FONT, fontSize: "8px", fontWeight: 700, color: "var(--accent-flight-bright)" }}>LIVE</span></span>}
-                        </div>
-                        <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{formatDate(leg.depart_time)}</span>
-                      </div>
-                      <div className="flex items-center justify-between mb-2">
-                        <span style={{ fontFamily: FONT, fontSize: "24px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "2px" }}>{leg.origin?.code || leg.origin?.city?.slice(0, 3)?.toUpperCase() || "?"}</span>
-                        <div className="flex flex-col items-center flex-1 mx-3">
-                          <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{dur}</span>
-                          <div style={{ width: "100%", height: 0, borderTop: "1px solid var(--border-subtle)", marginTop: 4 }} />
-                        </div>
-                        <span style={{ fontFamily: FONT, fontSize: "24px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "2px" }}>{leg.destination?.code || leg.destination?.city?.slice(0, 3)?.toUpperCase() || "?"}</span>
-                      </div>
-                      <div className="flex items-center justify-between mb-2">
-                        <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{formatTime(leg.actual_depart || leg.depart_time)} LOCAL</span>
-                        <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{formatTime(leg.arrive_time)} LOCAL</span>
-                      </div>
-                      {(leg.vehicle_number || leg.carrier || Object.keys(leg.metadata || {}).length > 0) && (
-                        <div className="flex items-center justify-between pt-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
-                          <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{[leg.vehicle_number, leg.carrier].filter(Boolean).join(" \u00B7 ")}</span>
-                          <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{[leg.metadata?.seat ? `SEAT ${leg.metadata.seat}` : null, leg.metadata?.terminal ? `T-${leg.metadata.terminal}` : null, leg.metadata?.gate ? `G${leg.metadata.gate}` : null].filter(Boolean).join(" \u00B7 ")}</span>
-                        </div>
-                      )}
-                      {editing && !isLive && (
-                        <div className="flex items-center gap-1 mt-2 pt-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
-                          {i > 0 && <button onClick={e => { e.stopPropagation(); moveLeg(i, -1); }} className="p-1" style={{ color: "var(--text-secondary)" }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 15l-6-6-6 6"/></svg></button>}
-                          {i < trip.legs.length - 1 && <button onClick={e => { e.stopPropagation(); moveLeg(i, 1); }} className="p-1" style={{ color: "var(--text-secondary)" }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9l6 6 6-6"/></svg></button>}
-                          <button onClick={e => { e.stopPropagation(); setConfirmDelete(leg.id); }} className="p-1 ml-auto" style={{ color: "var(--text-secondary)" }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Add leg builder (edit mode) */}
-        {editing && (
-          <div className="mt-3">
-            {showLegBuilder ? (
-              <div className="border rounded" style={{ background: "var(--bg-surface)", borderColor: "var(--border-primary)" }}>
-                <div className="flex border-b" style={{ borderColor: "var(--border-primary)" }}>{Object.entries(typeCfg).map(([k, v]) => <button key={k} onClick={() => { setBType(k); resetBuilder(); }} className="flex-1 py-2 text-xs font-bold tracking-widest relative" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: bType === k ? v.color : "var(--text-secondary)", background: "transparent" }}>{v.label}{bType === k && <div className="absolute bottom-0 left-0 right-0 h-px" style={{ background: v.color }} />}</button>)}</div>
-                <div className="p-3">
-                  {bType === "flight" && (<><div className="flex flex-col sm:flex-row gap-2 mb-2"><div className="flex-1"><Label>CALLSIGN</Label><Input type="text" value={bFN} onChange={e => { setBFN(e.target.value); setBAF(null); setBErr(null); }} onKeyDown={e => e.key === "Enter" && handleQuery()} placeholder="DL484" style={{ textTransform: "uppercase", letterSpacing: "1px" }} /></div><div className="flex items-end"><button onClick={handleQuery} disabled={bLoading || !bFN.trim()} className="w-full sm:w-auto px-4 py-2.5 rounded text-xs font-bold tracking-widest" style={{ background: bFN.trim() ? "var(--bg-surface)" : "var(--bg-surface)", color: bFN.trim() ? "var(--accent-flight)" : "var(--text-tertiary)", border: "1px solid var(--border-primary)", fontFamily: FONT, fontSize: "9px" }}>{bLoading ? <Spinner /> : "QUERY"}</button></div></div>{bAF && <div className="rounded border p-2.5 mb-2" style={{ background: "var(--bg-surface)", borderColor: "var(--accent-flight)" }}><div className="flex items-center gap-2 mb-1"><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--accent-flight)" }} /><span className="relative inline-flex rounded-full h-2 w-2" style={{ background: "var(--accent-flight)" }} /></span><span className="text-xs font-bold" style={{ color: "var(--accent-flight)", fontFamily: FONT, fontSize: "9px" }}>MATCH</span></div><div className="grid grid-cols-2 gap-x-4 gap-y-0.5">{[["CARRIER", bAF.carrier], ["ROUTE", `${bAF.origin.code} \u2192 ${bAF.destination.code}`], ["DEP", formatTime(bAF.origin.scheduled)], ["ARR", formatTime(bAF.destination.scheduled)]].map(([l, v]) => <div key={l} className="flex items-baseline gap-1.5"><span className="text-xs" style={{ color: "var(--text-secondary)", fontFamily: FONT, fontSize: "8px", minWidth: 40 }}>{l}</span><span className="text-xs" style={{ color: "var(--text-primary)", fontFamily: FONT }}>{v}</span></div>)}</div></div>}{bErr && <p className="mb-2 text-xs font-bold" style={{ color: "var(--accent-flight)", fontFamily: FONT, fontSize: "9px" }}>{bErr}</p>}</>)}
-                  {bType === "hotel" && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><div className="sm:col-span-2"><Label>PROPERTY</Label><PlaceAutocomplete value={bHN} onChange={setBHN} onSelect={(p) => setBHPlace(p)} placeholder="Park Hyatt Tokyo" types="lodging" />{bHPlace && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{bHPlace.address}</p>}{bHPlace?.lat && <div className="mt-2"><MiniMap lat={bHPlace.lat} lng={bHPlace.lng} zoom={15} height={100} label={bHPlace.name || bHN} /></div>}</div><div><Label>CONF NO.</Label><Input value={bHC} onChange={e => setBHC(e.target.value)} placeholder="Optional" /></div><div style={{}}></div><div><Label>CHECK-IN</Label><DatePicker value={bHI} onChange={setBHI} /></div><div><Label>CHECK-OUT</Label><DatePicker value={bHO} onChange={setBHO} /></div></div>}
-                  {(bType === "train" || bType === "bus") && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><div><Label>ORIGIN</Label><PlaceAutocomplete value={bO} onChange={setBO} onSelect={(p) => setBOPlace(p)} placeholder="Penn Station, NYC" types="transit_station|train_station|locality" />{bOPlace && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{bOPlace.address}</p>}</div><div><Label>DEST</Label><PlaceAutocomplete value={bD} onChange={setBD} onSelect={(p) => setBDPlace(p)} placeholder="Union Station, DC" types="transit_station|train_station|locality" />{bDPlace && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{bDPlace.address}</p>}</div><div><Label>DATE</Label><DatePicker value={bDt} onChange={setBDt} /></div><div><Label>TIME (OPT)</Label><Input type="time" value={bTm} onChange={e => setBTm(e.target.value)} /></div></div>}
-                  <div className="flex items-center justify-between mt-3 pt-3 pb-1" style={{ borderTop: "1px solid var(--border-primary)", position: "sticky", bottom: 0, background: "var(--bg-surface)", zIndex: 2 }}><button onClick={() => { setShowLegBuilder(false); resetBuilder(); }} className="px-4 py-3 rounded text-xs font-bold tracking-widest" style={{ color: "var(--text-secondary)", fontFamily: FONT, fontSize: "10px" }}>CANCEL</button><button onClick={addLeg} disabled={!canConfirm()} className="px-6 py-3 rounded text-xs font-bold tracking-widest" style={{ background: canConfirm() ? "var(--accent-flight)" : "var(--bg-surface)", color: canConfirm() ? "var(--bg-primary)" : "var(--text-tertiary)", fontFamily: FONT, fontSize: "10px" }}>ADD LEG</button></div>
-                </div>
-              </div>
-            ) : <button onClick={() => { resetBuilder(); setShowLegBuilder(true); }} className="w-full py-3 rounded border border-dashed text-xs font-bold tracking-widest" style={{ borderColor: "var(--accent-hotel-dim)", color: "var(--accent-hotel)", fontFamily: FONT, fontSize: "9px", letterSpacing: "2px" }}>+ ADD LEG</button>}
+      ) : (
+        <>
+          <div className="flex items-center justify-between mb-1">
+            <span style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--accent-flight)", fontWeight: 700 }}>{countdown.label}</span>
+            <span className="px-2.5 py-1" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: status === "live" || status === "active" ? "var(--accent-flight-bright)" : "var(--accent-countdown)", border: `1px solid ${status === "live" || status === "active" ? "var(--accent-flight)" : "var(--accent-hotel-dim)"}`, borderRadius: 4, fontWeight: 500 }}>{countdown.text}</span>
           </div>
-        )}
+          <h1 style={{ fontFamily: FONT, fontSize: "20px", fontWeight: 600, color: "var(--text-heading)", marginBottom: 4 }}>{trip.title}</h1>
+          <p style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)", letterSpacing: "0.5px" }}>
+            {formatDateRange(trip.start_date, trip.end_date)}{trip.legs?.length ? ` \u00B7 ${trip.legs.length} LEGS` : ""}{segmentCount ? ` \u00B7 ${segmentCount} SEGMENTS` : ""}
+          </p>
+        </>
+      )}
+    </div>
+  );
+
+  const mapModeToggle = (
+    <div style={{ display: "flex", justifyContent: "flex-end", padding: isDesktop ? "8px 12px" : "0 16px 4px", position: isDesktop ? "absolute" : undefined, top: isDesktop ? 12 : undefined, right: isDesktop ? 12 : undefined, zIndex: isDesktop ? 5 : undefined }}>
+      <div style={{ display: "inline-flex", border: "1px solid var(--border-primary)", borderRadius: 6, overflow: "hidden" }}>
+        {[{ key: "radar", label: "RADAR" }, { key: "satellite", label: "SATELLITE" }].map(v => (
+          <button key={v.key} onClick={() => setMapView(v.key)}
+            style={{ padding: "6px 12px", fontFamily: FONT, fontSize: "8px", letterSpacing: "1.5px", fontWeight: mapView === v.key ? 500 : 400,
+              background: mapView === v.key ? "var(--accent-flight)" : "transparent",
+              color: mapView === v.key ? "var(--bg-primary)" : "var(--text-tertiary)",
+              border: "none", cursor: "pointer", minHeight: 32 }}>
+            {v.label}
+          </button>
+        ))}
       </div>
+    </div>
+  );
 
-      {/* Stats footer */}
-      {!editing && <StatsFooter legs={trip.legs} />}
+  const mapSection = (
+    <div style={{ height: isDesktop ? "100%" : "260px", minHeight: "200px" }}>
+      {mapView === "satellite" ? (
+        <SatelliteMap trip={trip} height={isDesktop ? "100%" : 260} />
+      ) : (
+        <TripMap trip={trip} activeLegIndex={activeLeg} mode={mode} />
+      )}
+    </div>
+  );
 
-      {/* Delete trip (edit mode only) */}
-      {editing && (
-        <div style={{ padding: "8px 16px 24px", textAlign: "center" }}>
-          {showDeleteTrip ? (
-            <div>
-              <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", lineHeight: 1.5, marginBottom: 12 }}>This will permanently delete this trip and all its legs.</p>
-              <div style={{ display: "flex", justifyContent: "center", gap: 10 }}>
-                <button onClick={() => { setShowDeleteTrip(false); setDeleteError(null); }} style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: "var(--text-secondary)", padding: "10px 20px", border: "1px solid var(--border-primary)", borderRadius: 6, background: "transparent", cursor: "pointer", minHeight: 44 }}>CANCEL</button>
-                <button onClick={deleteTrip} disabled={deletingTrip} style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: "#fff", padding: "10px 20px", background: "#e84233", borderRadius: 6, border: "none", cursor: "pointer", minHeight: 44 }}>{deletingTrip ? <Spinner /> : "DELETE"}</button>
-              </div>
-              {deleteError && <p style={{ fontFamily: FONT, fontSize: "9px", color: "#e84233", marginTop: 8 }}>{deleteError}</p>}
+  return (
+    <div style={{ height: isDesktop ? "100vh" : undefined, overflow: isDesktop ? "hidden" : undefined, display: isDesktop ? "flex" : undefined, flexDirection: isDesktop ? "column" : undefined, background: "var(--bg-primary)" }} className={isDesktop ? "" : "min-h-[calc(100vh-48px)] sm:min-h-[calc(100vh-53px)]"}>
+      {showShare && <SquawkModal trip={trip} onClose={() => setShowShare(false)} />}
+
+      {/* Nav bar */}
+      {detailNavBar}
+
+      {isDesktop ? (
+        <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+          {/* Left: Map */}
+          <div style={{ flex: 1, position: "relative", overflow: "hidden", minWidth: 400 }}>
+            {mapSection}
+            {mapModeToggle}
+          </div>
+          {/* Right: Itinerary */}
+          <div style={{ width: 480, minWidth: 420, flexShrink: 0, borderLeft: "1px solid var(--border-primary)", overflowY: "auto" }}>
+            <div style={{ position: "sticky", top: 0, background: "var(--bg-primary)", zIndex: 5, borderBottom: "1px solid var(--border-primary)" }}>
+              {detailHeader}
+              {!editing && <div style={{ padding: "0 24px 16px" }}><RouteSummaryBar legs={trip.legs} /></div>}
             </div>
-          ) : (
-            <button onClick={() => setShowDeleteTrip(true)} style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: "#e84233", background: "transparent", border: "none", cursor: "pointer", padding: "16px 0", minHeight: 44 }}>DELETE FLIGHT PLAN</button>
-          )}
+            <div style={{ padding: "16px 24px 8px" }}>
+              {itineraryContent}
+            </div>
+            {!editing && <StatsFooter legs={trip.legs} />}
+            {deleteSection}
+          </div>
         </div>
+      ) : (
+        <>
+          {detailHeader}
+          {!editing && <div className="px-4 pb-3"><RouteSummaryBar legs={trip.legs} /></div>}
+          {mapModeToggle}
+          {mapSection}
+          <div className="px-4 pt-4 pb-2">
+            {itineraryContent}
+          </div>
+          {!editing && <StatsFooter legs={trip.legs} />}
+          {deleteSection}
+        </>
       )}
     </div>
   );
@@ -2319,6 +2567,7 @@ function DetailPage({ tripId }) {
 function CreatePage() {
   const { navigate } = useRouter();
   const { mode } = useTheme();
+  const isDesktop = useIsDesktop();
 
   // Trip details
   const [tripTitle, setTripTitle] = useState("");
@@ -2397,7 +2646,7 @@ function CreatePage() {
   const handleQuery = async () => {
     if (!bFN.trim() || queryDisabled) return; setBLoading(true); setBErr(null); setBAF(null);
     try {
-      const r = await api(`/flights/lookup?callsign=${bFN.trim().toUpperCase()}`);
+      const r = await api(`/flights/lookup?callsign=${bFN.trim().toUpperCase()}${fDate ? `&date=${fDate}` : ""}`);
       const af = mapFlightLookup(r);
       setBAF(af);
       setFOrigin(af.origin.code || "");
@@ -2529,7 +2778,7 @@ function CreatePage() {
   const bLabel = { fontFamily: FONT, fontSize: "7px", letterSpacing: "1.5px", color: "var(--text-tertiary)", marginBottom: 4, display: "block" };
 
   return (
-    <div className="px-4 sm:px-6 py-4" style={{ maxWidth: "36rem", margin: "0 auto" }}>
+    <div className="px-4 sm:px-6 py-4" style={{ maxWidth: isDesktop ? 580 : "36rem", margin: "0 auto", padding: isDesktop ? "32px 24px 60px" : undefined }}>
       {/* ── Discard confirmation ── */}
       {showDiscard && (
         <div style={{ position: "fixed", inset: 0, zIndex: 999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.4)" }}>
@@ -2683,11 +2932,14 @@ function CreatePage() {
           {/* Callsign lookup */}
           <div style={{ border: "1px solid var(--border-primary)", borderRadius: 6, padding: "10px 12px", background: "var(--bg-card)", marginBottom: 10 }}>
             <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--accent-flight)", marginBottom: 6 }}>CALLSIGN LOOKUP</p>
-            <div style={{ display: "flex", gap: 6 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
               <input type="text" value={bFN} onChange={e => { setBFN(e.target.value); setBAF(null); setBErr(null); }}
                 onKeyDown={e => e.key === "Enter" && handleQuery()}
                 placeholder="DL484"
-                style={{ ...bInput({ flex: 1, textTransform: "uppercase", letterSpacing: "1px", background: "var(--bg-surface)" }) }}
+                style={{ ...bInput({ flex: "1 1 120px", textTransform: "uppercase", letterSpacing: "1px", background: "var(--bg-surface)" }) }}
+              />
+              <input type="date" value={fDate} onChange={e => setFDate(e.target.value)}
+                style={{ ...bInput({ flex: "0 0 140px", background: "var(--bg-surface)" }) }}
               />
               <button onClick={handleQuery} disabled={bLoading || !bFN.trim()}
                 style={{ height: 40, padding: "0 14px", background: "var(--squawk-bg)", color: "var(--squawk-text)", borderRadius: 6, border: "none", fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", fontWeight: 500, cursor: "pointer", whiteSpace: "nowrap" }}>
@@ -2813,6 +3065,7 @@ function CreatePage() {
 function SharedPage({ tripId }) {
   const { navigate } = useRouter();
   const { mode } = useTheme();
+  const isDesktop = useIsDesktop();
   const [trip, setTrip] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeLeg, setActiveLeg] = useState(0);
@@ -2879,167 +3132,200 @@ function SharedPage({ tripId }) {
     return items;
   })();
 
-  return (
-    <div className="min-h-[calc(100vh-48px)] sm:min-h-[calc(100vh-53px)]" style={{ background: "var(--bg-primary)" }}>
-      {/* Nav bar */}
-      <div className="flex items-center justify-between px-4 py-2">
-        <button onClick={() => navigate("dashboard")} style={{ width: 44, height: 44, border: "1px solid var(--nav-border)", borderRadius: 8, background: "var(--nav-bg)", color: "var(--nav-text-active)", fontFamily: FONT, fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center" }}>{"\u2190"}</button>
-        <span style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "3px", color: "var(--text-tertiary)" }}>TRACKING</span>
-        <div style={{ width: 44 }} />
-      </div>
+  const sharedNavBar = (
+    <div className="flex items-center justify-between px-4 py-2">
+      <button onClick={() => navigate("dashboard")} style={{ width: 44, height: 44, border: "1px solid var(--nav-border)", borderRadius: 8, background: "var(--nav-bg)", color: "var(--nav-text-active)", fontFamily: FONT, fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center" }}>{"\u2190"}</button>
+      <span style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "3px", color: "var(--text-tertiary)" }}>TRACKING</span>
+      <div style={{ width: 44 }} />
+    </div>
+  );
 
-      {/* Traveler identity */}
-      <div style={{ padding: "14px 16px 8px", display: "flex", alignItems: "center", gap: 10 }}>
-        <div style={{ width: 32, height: 32, borderRadius: "50%", border: "1px solid var(--border-primary)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT, fontSize: "13px", fontWeight: 600, color: "var(--nav-text)", flexShrink: 0 }}>{travelerName.charAt(0).toUpperCase()}</div>
-        <div>
-          <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--text-tertiary)" }}>TRAVELER'S FLIGHT PLAN</p>
-          <p style={{ fontFamily: FONT, fontSize: "16px", fontWeight: 600, color: "var(--text-heading)" }}>{trip.title}</p>
-        </div>
+  const sharedTravelerIdentity = (
+    <div style={{ padding: "14px 16px 8px", display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ width: 32, height: 32, borderRadius: "50%", border: "1px solid var(--border-primary)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT, fontSize: "13px", fontWeight: 600, color: "var(--nav-text)", flexShrink: 0 }}>{travelerName.charAt(0).toUpperCase()}</div>
+      <div>
+        <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--text-tertiary)" }}>TRAVELER'S FLIGHT PLAN</p>
+        <p style={{ fontFamily: FONT, fontSize: "16px", fontWeight: 600, color: "var(--text-heading)" }}>{trip.title}</p>
       </div>
+    </div>
+  );
 
-      {/* Signal status card */}
-      <div style={{ margin: "4px 16px 10px", border: `1px solid ${signal.borderColor}`, borderRadius: 6, padding: 12, background: "var(--bg-card)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-          <span style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--accent-flight)" }}>SIGNAL STATUS</span>
-          <span style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "1px", padding: "2px 8px", borderRadius: 3, color: signal.badgeColor, border: `1px solid ${signal.borderColor}`, background: "var(--bg-card)" }}>{signal.badge}</span>
-        </div>
-        <p style={{ fontFamily: FONT, fontSize: "13px", color: "var(--text-heading)", lineHeight: 1.4 }}>{narrative.main}</p>
-        {narrative.sub && <p style={{ fontFamily: FONT, fontSize: "13px", color: "var(--text-secondary)", lineHeight: 1.4 }}>{narrative.sub}</p>}
-        {presence.progress != null && (
-          <div className="flex items-center gap-3 mt-3">
-            <div className="flex-1 h-1 rounded-full overflow-hidden" style={{ background: "var(--border-primary)" }}>
-              <div className="h-full rounded-full" style={{ width: `${presence.progress * 100}%`, background: "var(--accent-flight)" }} />
-            </div>
-            <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", fontWeight: 700 }}>{Math.round(presence.progress * 100)}%</span>
+  const sharedSignalCard = (
+    <div style={{ margin: "4px 16px 10px", border: `1px solid ${signal.borderColor}`, borderRadius: 6, padding: 12, background: "var(--bg-card)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <span style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--accent-flight)" }}>SIGNAL STATUS</span>
+        <span style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "1px", padding: "2px 8px", borderRadius: 3, color: signal.badgeColor, border: `1px solid ${signal.borderColor}`, background: "var(--bg-card)" }}>{signal.badge}</span>
+      </div>
+      <p style={{ fontFamily: FONT, fontSize: "13px", color: "var(--text-heading)", lineHeight: 1.4 }}>{narrative.main}</p>
+      {narrative.sub && <p style={{ fontFamily: FONT, fontSize: "13px", color: "var(--text-secondary)", lineHeight: 1.4 }}>{narrative.sub}</p>}
+      {presence.progress != null && (
+        <div className="flex items-center gap-3 mt-3">
+          <div className="flex-1 h-1 rounded-full overflow-hidden" style={{ background: "var(--border-primary)" }}>
+            <div className="h-full rounded-full" style={{ width: `${presence.progress * 100}%`, background: "var(--accent-flight)" }} />
           </div>
-        )}
-      </div>
-
-      {/* Map mode toggle */}
-      <div style={{ display: "flex", justifyContent: "flex-end", padding: "0 16px 4px" }}>
-        <div style={{ display: "inline-flex", border: "1px solid var(--border-primary)", borderRadius: 6, overflow: "hidden" }}>
-          {[{ key: "radar", label: "RADAR" }, { key: "satellite", label: "SATELLITE" }].map(v => (
-            <button key={v.key} onClick={() => setMapView(v.key)}
-              style={{ padding: "6px 12px", fontFamily: FONT, fontSize: "8px", letterSpacing: "1.5px", fontWeight: mapView === v.key ? 500 : 400,
-                background: mapView === v.key ? "var(--accent-flight)" : "transparent",
-                color: mapView === v.key ? "var(--bg-primary)" : "var(--text-tertiary)",
-                border: "none", cursor: "pointer", minHeight: 32 }}>
-              {v.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Map — shared view */}
-      <div style={{ height: 220, margin: "0 16px", borderRadius: 8, overflow: "hidden", border: "1px solid var(--border-primary)" }}>
-        {mapView === "satellite" ? (
-          <SatelliteMap trip={trip} height={220} />
-        ) : (
-          <TripMap trip={trip} activeLegIndex={activeLeg} mode={mode} isSharedView />
-        )}
-      </div>
-
-      {/* Date range */}
-      <div style={{ padding: "10px 16px" }}>
-        <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", letterSpacing: "0.5px" }}>{formatDateRange(trip.start_date, trip.end_date)}</p>
-      </div>
-
-      {/* Route summary bar (codes only, no durations) */}
-      {sharedRouteItems.length > 0 && (
-        <div style={{ padding: "0 16px 10px" }}>
-          <div className="flex items-center gap-0.5 overflow-x-auto" style={{ paddingBottom: 2 }}>
-            {sharedRouteItems.map((it, i) => it.t === "c"
-              ? <span key={i} style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 700, color: "var(--accent-flight-bright)", letterSpacing: "1px", flexShrink: 0 }}>{it.code}</span>
-              : it.t === "f"
-                ? <span key={i} style={{ width: 16, height: 0, borderTop: "1px solid var(--border-primary)", display: "inline-block", flexShrink: 0 }} />
-                : <span key={i} style={{ width: 12, height: 0, borderTop: "1px dashed var(--accent-hotel)", opacity: 0.5, display: "inline-block", flexShrink: 0 }} />
-            )}
-          </div>
+          <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", fontWeight: 700 }}>{Math.round(presence.progress * 100)}%</span>
         </div>
       )}
+    </div>
+  );
 
-      {/* Itinerary timeline */}
-      <div style={{ padding: "0 16px 16px" }}>
-        <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-secondary)", fontWeight: 700, marginBottom: 10 }}>ITINERARY</p>
-
-        {trip.legs?.map((leg, i) => {
-          const isHotel = leg.type === "hotel";
-          const isLive = leg.status === "in_air" || leg.status === "in_transit";
-          const stripColors = { flight: "var(--strip-flight)", hotel: "var(--strip-hotel)", train: "#d4628a", bus: "#7c6bb4" };
-          const stripColor = stripColors[leg.type] || "var(--strip-flight)";
-          const cardBg = isHotel ? "var(--bg-card-hotel)" : "var(--bg-card)";
-          const cardBorder = isHotel ? "var(--border-hotel)" : "var(--border-primary)";
-          const nights = isHotel ? calcNights(leg) : 0;
-          const city = leg.origin?.city || "Unknown";
-
-          return (
-            <div key={leg.id} className="flex">
-              {/* Timeline rail */}
-              <div className="flex flex-col items-center" style={{ width: 28 }}>
-                <div style={{ width: isHotel ? 8 : 10, height: isHotel ? 8 : 10, borderRadius: "50%", border: `2px solid ${isHotel ? "var(--strip-hotel)" : "var(--timeline-dot-border)"}`, background: "var(--timeline-dot-bg)", flexShrink: 0 }} />
-                {i < trip.legs.length - 1 && <div style={{ width: 1.5, flex: 1, background: "var(--timeline-rail)", minHeight: 20 }} />}
-              </div>
-
-              {/* Card */}
-              <div className="flex-1 mb-2 ml-2" style={{ borderLeft: `3px solid ${stripColor}`, borderRadius: 4, padding: 12, background: cardBg, border: `1px solid ${cardBorder}`, borderLeftWidth: 3, borderLeftColor: stripColor, borderLeftStyle: "solid" }}>
-                {isHotel ? (
-                  <>
-                    <div className="flex items-center justify-between mb-1">
-                      <span style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: "var(--accent-hotel)", fontWeight: 700 }}>GROUND STOP</span>
-                      <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{formatDate(leg.depart_time)}{leg.arrive_time ? ` \u2013 ${formatDate(leg.arrive_time)}` : ""}</span>
-                    </div>
-                    <p style={{ fontFamily: FONT, fontSize: "12px", color: "var(--accent-hotel-dim)", fontStyle: "italic", marginBottom: 4 }}>Accommodation details private</p>
-                    <p style={{ fontFamily: FONT, fontSize: "8px", color: "var(--accent-hotel-dim)" }}>
-                      {nights ? `${nights} NIGHTS` : ""}{nights && city ? " \u00B7 " : ""}{city ? `${city.toUpperCase()} AREA` : ""}
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <span style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: stripColor, fontWeight: 700 }}>{leg.type.toUpperCase()} {"\u00B7"} {leg.vehicle_number || leg.carrier}</span>
-                        {isLive && <span className="inline-flex items-center gap-1"><span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--accent-flight)" }} /><span className="relative inline-flex rounded-full h-1.5 w-1.5" style={{ background: "var(--accent-flight)" }} /></span><span style={{ fontFamily: FONT, fontSize: "8px", fontWeight: 700, color: "var(--accent-flight-bright)" }}>LIVE</span></span>}
-                      </div>
-                      <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{formatDate(leg.depart_time)}</span>
-                    </div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span style={{ fontFamily: FONT, fontSize: "24px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "2px" }}>{leg.origin?.code || leg.origin?.city?.slice(0, 3)?.toUpperCase() || "?"}</span>
-                      <div className="flex flex-col items-center flex-1 mx-3">
-                        <div style={{ width: "100%", height: 0, borderTop: "1px solid var(--border-subtle)" }} />
-                      </div>
-                      <span style={{ fontFamily: FONT, fontSize: "24px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "2px" }}>{leg.destination?.code || leg.destination?.city?.slice(0, 3)?.toUpperCase() || "?"}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{formatTime(leg.depart_time)}</span>
-                      <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{formatTime(leg.arrive_time)}</span>
-                    </div>
-                    <div className="pt-2 mt-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
-                      <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{[leg.carrier, formatTime(leg.depart_time) + " \u2192 " + formatTime(leg.arrive_time)].filter(Boolean).join(" \u00B7 ")}</span>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-          );
-        })}
+  const sharedMapToggle = (
+    <div style={{ display: "flex", justifyContent: "flex-end", padding: isDesktop ? "8px 12px" : "0 16px 4px", position: isDesktop ? "absolute" : undefined, top: isDesktop ? 12 : undefined, right: isDesktop ? 12 : undefined, zIndex: isDesktop ? 5 : undefined }}>
+      <div style={{ display: "inline-flex", border: "1px solid var(--border-primary)", borderRadius: 6, overflow: "hidden" }}>
+        {[{ key: "radar", label: "RADAR" }, { key: "satellite", label: "SATELLITE" }].map(v => (
+          <button key={v.key} onClick={() => setMapView(v.key)}
+            style={{ padding: "6px 12px", fontFamily: FONT, fontSize: "8px", letterSpacing: "1.5px", fontWeight: mapView === v.key ? 500 : 400,
+              background: mapView === v.key ? "var(--accent-flight)" : "transparent",
+              color: mapView === v.key ? "var(--bg-primary)" : "var(--text-tertiary)",
+              border: "none", cursor: "pointer", minHeight: 32 }}>
+            {v.label}
+          </button>
+        ))}
       </div>
+    </div>
+  );
 
-      {/* Stats footer (limited: legs + days only) */}
-      <div style={{ padding: "16px", borderTop: "1px solid var(--border-subtle)" }}>
-        <div style={{ display: "flex", justifyContent: "center", gap: 40 }}>
-          <div style={{ textAlign: "center" }}>
-            <p style={{ fontFamily: FONT, fontSize: "18px", fontWeight: 700, color: "var(--stats-value)" }}>{totalLegs}</p>
-            <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--stats-label)" }}>SEGMENTS</p>
+  const sharedMapSection = (
+    <div style={{ height: isDesktop ? "100%" : 220, margin: isDesktop ? 0 : "0 16px", borderRadius: isDesktop ? 0 : 8, overflow: "hidden", border: isDesktop ? "none" : "1px solid var(--border-primary)" }}>
+      {mapView === "satellite" ? (
+        <SatelliteMap trip={trip} height={isDesktop ? "100%" : 220} />
+      ) : (
+        <TripMap trip={trip} activeLegIndex={activeLeg} mode={mode} isSharedView />
+      )}
+    </div>
+  );
+
+  const sharedRouteBar = sharedRouteItems.length > 0 ? (
+    <div style={{ padding: "0 16px 10px" }}>
+      <div className="flex items-center gap-0.5 overflow-x-auto" style={{ paddingBottom: 2 }}>
+        {sharedRouteItems.map((it, i) => it.t === "c"
+          ? <span key={i} style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 700, color: "var(--accent-flight-bright)", letterSpacing: "1px", flexShrink: 0 }}>{it.code}</span>
+          : it.t === "f"
+            ? <span key={i} style={{ width: 16, height: 0, borderTop: "1px solid var(--border-primary)", display: "inline-block", flexShrink: 0 }} />
+            : <span key={i} style={{ width: 12, height: 0, borderTop: "1px dashed var(--accent-hotel)", opacity: 0.5, display: "inline-block", flexShrink: 0 }} />
+        )}
+      </div>
+    </div>
+  ) : null;
+
+  const sharedItinerary = (
+    <div style={{ padding: "0 16px 16px" }}>
+      <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-secondary)", fontWeight: 700, marginBottom: 10 }}>ITINERARY</p>
+      {trip.legs?.map((leg, i) => {
+        const isHotel = leg.type === "hotel";
+        const isLive = leg.status === "in_air" || leg.status === "in_transit";
+        const stripColors = { flight: "var(--strip-flight)", hotel: "var(--strip-hotel)", train: "#d4628a", bus: "#7c6bb4" };
+        const stripColor = stripColors[leg.type] || "var(--strip-flight)";
+        const cardBg = isHotel ? "var(--bg-card-hotel)" : "var(--bg-card)";
+        const cardBorder = isHotel ? "var(--border-hotel)" : "var(--border-primary)";
+        const nights = isHotel ? calcNights(leg) : 0;
+        const city = leg.origin?.city || "Unknown";
+        return (
+          <div key={leg.id} className="flex">
+            <div className="flex flex-col items-center" style={{ width: 28 }}>
+              <div style={{ width: isHotel ? 8 : 10, height: isHotel ? 8 : 10, borderRadius: "50%", border: `2px solid ${isHotel ? "var(--strip-hotel)" : "var(--timeline-dot-border)"}`, background: "var(--timeline-dot-bg)", flexShrink: 0 }} />
+              {i < trip.legs.length - 1 && <div style={{ width: 1.5, flex: 1, background: "var(--timeline-rail)", minHeight: 20 }} />}
+            </div>
+            <div className="flex-1 mb-2 ml-2" style={{ borderLeft: `3px solid ${stripColor}`, borderRadius: 4, padding: 12, background: cardBg, border: `1px solid ${cardBorder}`, borderLeftWidth: 3, borderLeftColor: stripColor, borderLeftStyle: "solid" }}>
+              {isHotel ? (
+                <>
+                  <div className="flex items-center justify-between mb-1">
+                    <span style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: "var(--accent-hotel)", fontWeight: 700 }}>GROUND STOP</span>
+                    <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{formatDate(leg.depart_time)}{leg.arrive_time ? ` \u2013 ${formatDate(leg.arrive_time)}` : ""}</span>
+                  </div>
+                  <p style={{ fontFamily: FONT, fontSize: "12px", color: "var(--accent-hotel-dim)", fontStyle: "italic", marginBottom: 4 }}>Accommodation details private</p>
+                  <p style={{ fontFamily: FONT, fontSize: "8px", color: "var(--accent-hotel-dim)" }}>
+                    {nights ? `${nights} NIGHTS` : ""}{nights && city ? " \u00B7 " : ""}{city ? `${city.toUpperCase()} AREA` : ""}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: stripColor, fontWeight: 700 }}>{leg.type.toUpperCase()} {"\u00B7"} {leg.vehicle_number || leg.carrier}</span>
+                      {isLive && <span className="inline-flex items-center gap-1"><span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--accent-flight)" }} /><span className="relative inline-flex rounded-full h-1.5 w-1.5" style={{ background: "var(--accent-flight)" }} /></span><span style={{ fontFamily: FONT, fontSize: "8px", fontWeight: 700, color: "var(--accent-flight-bright)" }}>LIVE</span></span>}
+                    </div>
+                    <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{formatDate(leg.depart_time)}</span>
+                  </div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span style={{ fontFamily: FONT, fontSize: "24px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "2px" }}>{leg.origin?.code || leg.origin?.city?.slice(0, 3)?.toUpperCase() || "?"}</span>
+                    <div className="flex flex-col items-center flex-1 mx-3">
+                      <div style={{ width: "100%", height: 0, borderTop: "1px solid var(--border-subtle)" }} />
+                    </div>
+                    <span style={{ fontFamily: FONT, fontSize: "24px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "2px" }}>{leg.destination?.code || leg.destination?.city?.slice(0, 3)?.toUpperCase() || "?"}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{formatTime(leg.depart_time)}</span>
+                    <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{formatTime(leg.arrive_time)}</span>
+                  </div>
+                  <div className="pt-2 mt-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+                    <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{[leg.carrier, formatTime(leg.depart_time) + " \u2192 " + formatTime(leg.arrive_time)].filter(Boolean).join(" \u00B7 ")}</span>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
-          {tripDays && (
-            <div style={{ textAlign: "center" }}>
-              <p style={{ fontFamily: FONT, fontSize: "18px", fontWeight: 700, color: "var(--stats-value)" }}>{tripDays}</p>
-              <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--stats-label)" }}>DURATION</p>
-            </div>
-          )}
+        );
+      })}
+    </div>
+  );
+
+  const sharedStats = (
+    <div style={{ padding: "16px", borderTop: "1px solid var(--border-subtle)" }}>
+      <div style={{ display: "flex", justifyContent: "center", gap: 40 }}>
+        <div style={{ textAlign: "center" }}>
+          <p style={{ fontFamily: FONT, fontSize: "18px", fontWeight: 700, color: "var(--stats-value)" }}>{totalLegs}</p>
+          <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--stats-label)" }}>SEGMENTS</p>
         </div>
-        <p className="text-center mt-4" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "3px", color: "var(--text-tertiary)" }}>TRANSPONDER</p>
+        {tripDays && (
+          <div style={{ textAlign: "center" }}>
+            <p style={{ fontFamily: FONT, fontSize: "18px", fontWeight: 700, color: "var(--stats-value)" }}>{tripDays}</p>
+            <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--stats-label)" }}>DURATION</p>
+          </div>
+        )}
       </div>
+      <p className="text-center mt-4" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "3px", color: "var(--text-tertiary)" }}>TRANSPONDER</p>
+    </div>
+  );
+
+  const sharedDateRange = (
+    <div style={{ padding: "10px 16px" }}>
+      <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", letterSpacing: "0.5px" }}>{formatDateRange(trip.start_date, trip.end_date)}</p>
+    </div>
+  );
+
+  return (
+    <div style={{ height: isDesktop ? "100vh" : undefined, overflow: isDesktop ? "hidden" : undefined, display: isDesktop ? "flex" : undefined, flexDirection: isDesktop ? "column" : undefined, background: "var(--bg-primary)" }} className={isDesktop ? "" : "min-h-[calc(100vh-48px)] sm:min-h-[calc(100vh-53px)]"}>
+      {sharedNavBar}
+      {isDesktop ? (
+        <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+          <div style={{ flex: 1, position: "relative", overflow: "hidden", minWidth: 400 }}>
+            {sharedMapSection}
+            {sharedMapToggle}
+          </div>
+          <div style={{ width: 480, minWidth: 420, flexShrink: 0, borderLeft: "1px solid var(--border-primary)", overflowY: "auto" }}>
+            <div style={{ position: "sticky", top: 0, background: "var(--bg-primary)", zIndex: 5, borderBottom: "1px solid var(--border-primary)" }}>
+              {sharedTravelerIdentity}
+              {sharedSignalCard}
+            </div>
+            {sharedDateRange}
+            {sharedRouteBar}
+            {sharedItinerary}
+            {sharedStats}
+          </div>
+        </div>
+      ) : (
+        <>
+          {sharedTravelerIdentity}
+          {sharedSignalCard}
+          {sharedMapToggle}
+          {sharedMapSection}
+          {sharedDateRange}
+          {sharedRouteBar}
+          {sharedItinerary}
+          {sharedStats}
+        </>
+      )}
     </div>
   );
 }
