@@ -32,9 +32,8 @@ async function lookupFlight(callsign, date) {
       return null;
     }
 
-    // Return the first matching flight
-    const flight = flights[0];
-    return {
+    // Map all matching flights so the user can choose
+    const mapped = flights.map(flight => ({
       callsign: `${flight.airline?.iata || airlineIata}${flight.flight?.number || flightNumber}`,
       carrier: flight.airline?.name || null,
       carrier_code: flight.airline?.iata || airlineIata,
@@ -59,7 +58,19 @@ async function lookupFlight(callsign, date) {
       aircraft: flight.aircraft?.registration || null,
       aircraft_type: flight.aircraft?.iata || null,
       status: flight.flight_status || null,
-    };
+      flight_date: flight.flight_date || null,
+    }));
+
+    // Deduplicate by route+time (AviationStack sometimes returns duplicates)
+    const seen = new Set();
+    const unique = mapped.filter(f => {
+      const key = `${f.origin.code}-${f.destination.code}-${f.origin.scheduled}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    return unique;
   } catch (err) {
     if (err.response?.status === 429) {
       throw new Error('Flight lookup rate limit exceeded. Try again later.');

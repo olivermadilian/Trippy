@@ -64,8 +64,11 @@ function mapFlightLookup(r) {
     carrier: r.carrier, carrier_code: r.carrier_code, callsign: r.callsign,
     origin: { code: r.origin.code, airport: r.origin.airport, scheduled: r.origin.scheduled, terminal: r.origin.terminal, gate: r.origin.gate },
     destination: { code: r.destination.code, airport: r.destination.airport, scheduled: r.destination.scheduled, terminal: r.destination.terminal, gate: r.destination.gate },
-    status: r.status,
+    status: r.status, flight_date: r.flight_date,
   };
+}
+function mapFlightResults(res) {
+  return (res.flights || [res]).map(mapFlightLookup);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2274,7 +2277,7 @@ function DetailPage({ tripId }) {
   const [deletingTrip, setDeletingTrip] = useState(false);
   const [deleteError, setDeleteError] = useState(null);
   const [bType, setBType] = useState("flight");
-  const [bFN, setBFN] = useState(""); const [bLoading, setBLoading] = useState(false); const [bAF, setBAF] = useState(null); const [bErr, setBErr] = useState(null);
+  const [bFN, setBFN] = useState(""); const [bLoading, setBLoading] = useState(false); const [bAF, setBAF] = useState(null); const [bErr, setBErr] = useState(null); const [bFlightOptions, setBFlightOptions] = useState(null);
   const [bHN, setBHN] = useState(""); const [bHC, setBHC] = useState(""); const [bHI, setBHI] = useState(""); const [bHO, setBHO] = useState("");
   const [bHPlace, setBHPlace] = useState(null); // { lat, lng, city, address }
   const [bO, setBO] = useState(""); const [bD, setBD] = useState(""); const [bDt, setBDt] = useState(""); const [bTm, setBTm] = useState("");
@@ -2287,7 +2290,7 @@ function DetailPage({ tripId }) {
       const endIso = last.type === "hotel" ? (last.arrive_time || last.depart_time) : (last.arrive_time || last.depart_time);
       if (endIso) { const d = new Date(endIso.split("T")[0]); d.setDate(d.getDate() + 1); defDate = d.toISOString().split("T")[0]; }
     }
-    setBFN(""); setBLoading(false); setBAF(null); setBErr(null); setBHN(""); setBHC(""); setBHI(defDate || sd); setBHO(ed); setBHPlace(null); setBO(""); setBD(""); setBDt(defDate || sd); setBTm(""); setBOPlace(null); setBDPlace(null);
+    setBFN(""); setBLoading(false); setBAF(null); setBErr(null); setBFlightOptions(null); setBHN(""); setBHC(""); setBHI(defDate || sd); setBHO(ed); setBHPlace(null); setBO(""); setBD(""); setBDt(defDate || sd); setBTm(""); setBOPlace(null); setBDPlace(null);
   };
   const typeCfg = { flight: { label: "FLIGHT", color: "var(--strip-flight)" }, hotel: { label: "GROUND STOP", color: "var(--strip-hotel)" }, train: { label: "TRAIN", color: "#d4628a" }, bus: { label: "BUS", color: "#7c6bb4" } };
 
@@ -2302,7 +2305,8 @@ function DetailPage({ tripId }) {
   const removeLeg = async (legId) => { try { await api(`/trips/${trip.id}/legs/${legId}`, { method: "DELETE" }); setTrip(prev => ({ ...prev, legs: prev.legs.filter(l => l.id !== legId) })); setConfirmDelete(null); } catch (e) { alert(e.message); } };
   const moveLeg = async (index, dir) => { const newIdx = index + dir; if (newIdx < 0 || newIdx >= trip.legs.length) return; const legs = [...trip.legs]; [legs[index], legs[newIdx]] = [legs[newIdx], legs[index]]; setTrip(prev => ({ ...prev, legs })); setActiveLeg(newIdx); try { await api(`/trips/${trip.id}/legs/reorder`, { method: "PUT", body: JSON.stringify({ leg_ids: legs.map(l => l.id) }) }); } catch (e) { fetchTrip(); } };
   const [queryDisabled, setQueryDisabled] = useState(false);
-  const handleQuery = async () => { if (!bFN.trim() || queryDisabled) return; setBLoading(true); setBErr(null); setBAF(null); try { const r = await api(`/flights/lookup?callsign=${bFN.trim().toUpperCase()}${bDt ? `&date=${bDt}` : ""}`); setBAF(mapFlightLookup(r)); } catch (e) { if (e?.message?.includes("429") || e?.message?.toLowerCase().includes("rate")) { setBErr("STAND BY \u2014 too many lookups. Try again in a moment."); setQueryDisabled(true); setTimeout(() => setQueryDisabled(false), 10000); } else { setBErr("NO MATCH \u2014 verify callsign"); } } setBLoading(false); };
+  const selectFlightDetail = (af) => { setBAF(af); setBFlightOptions(null); };
+  const handleQuery = async () => { if (!bFN.trim() || queryDisabled) return; setBLoading(true); setBErr(null); setBAF(null); setBFlightOptions(null); try { const r = await api(`/flights/lookup?callsign=${bFN.trim().toUpperCase()}${bDt ? `&date=${bDt}` : ""}`); const results = mapFlightResults(r); if (results.length === 1) { setBAF(results[0]); } else if (results.length > 1) { setBFlightOptions(results); } else { setBErr("NO MATCH \u2014 verify callsign"); } } catch (e) { if (e?.message?.includes("429") || e?.message?.toLowerCase().includes("rate")) { setBErr("STAND BY \u2014 too many lookups. Try again in a moment."); setQueryDisabled(true); setTimeout(() => setQueryDisabled(false), 10000); } else { setBErr("NO MATCH \u2014 verify callsign"); } } setBLoading(false); };
   const canConfirm = () => { if (bType === "flight") return !!bAF; if (bType === "hotel") return bHN.trim() && bHI; return bO.trim() && bD.trim() && bDt; };
 
   const addLeg = async () => {
@@ -2420,7 +2424,7 @@ function DetailPage({ tripId }) {
             <div className="border rounded" style={{ background: "var(--bg-surface)", borderColor: "var(--border-primary)" }}>
               <div className="flex border-b" style={{ borderColor: "var(--border-primary)" }}>{Object.entries(typeCfg).map(([k, v]) => <button key={k} onClick={() => { setBType(k); resetBuilder(); }} className="flex-1 py-2 text-xs font-bold tracking-widest relative" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: bType === k ? v.color : "var(--text-secondary)", background: "transparent" }}>{v.label}{bType === k && <div className="absolute bottom-0 left-0 right-0 h-px" style={{ background: v.color }} />}</button>)}</div>
               <div className="p-3">
-                {bType === "flight" && (<><div className="flex flex-col sm:flex-row gap-2 mb-2"><div className="flex-1"><Label>CALLSIGN</Label><Input type="text" value={bFN} onChange={e => { setBFN(e.target.value); setBAF(null); setBErr(null); }} onKeyDown={e => e.key === "Enter" && handleQuery()} placeholder="DL484" style={{ textTransform: "uppercase", letterSpacing: "1px" }} /></div><div className="flex-1"><Label>DATE</Label><DatePicker value={bDt} onChange={setBDt} /></div><div className="flex items-end"><button onClick={handleQuery} disabled={bLoading || !bFN.trim()} className="w-full sm:w-auto px-4 py-2.5 rounded text-xs font-bold tracking-widest" style={{ background: bFN.trim() ? "var(--bg-surface)" : "var(--bg-surface)", color: bFN.trim() ? "var(--accent-flight)" : "var(--text-tertiary)", border: "1px solid var(--border-primary)", fontFamily: FONT, fontSize: "9px" }}>{bLoading ? <Spinner /> : "QUERY"}</button></div></div>{bAF && <div className="rounded border p-2.5 mb-2" style={{ background: "var(--bg-surface)", borderColor: "var(--accent-flight)" }}><div className="flex items-center gap-2 mb-1"><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--accent-flight)" }} /><span className="relative inline-flex rounded-full h-2 w-2" style={{ background: "var(--accent-flight)" }} /></span><span className="text-xs font-bold" style={{ color: "var(--accent-flight)", fontFamily: FONT, fontSize: "9px" }}>MATCH</span></div><div className="grid grid-cols-2 gap-x-4 gap-y-0.5">{[["CARRIER", bAF.carrier], ["ROUTE", `${bAF.origin.code} \u2192 ${bAF.destination.code}`], ["DEP", formatTime(bAF.origin.scheduled)], ["ARR", formatTime(bAF.destination.scheduled)]].map(([l, v]) => <div key={l} className="flex items-baseline gap-1.5"><span className="text-xs" style={{ color: "var(--text-secondary)", fontFamily: FONT, fontSize: "8px", minWidth: 40 }}>{l}</span><span className="text-xs" style={{ color: "var(--text-primary)", fontFamily: FONT }}>{v}</span></div>)}</div></div>}{bErr && <p className="mb-2 text-xs font-bold" style={{ color: "var(--accent-flight)", fontFamily: FONT, fontSize: "9px" }}>{bErr}</p>}</>)}
+                {bType === "flight" && (<><div className="flex flex-col sm:flex-row gap-2 mb-2"><div className="flex-1"><Label>CALLSIGN</Label><Input type="text" value={bFN} onChange={e => { setBFN(e.target.value); setBAF(null); setBErr(null); }} onKeyDown={e => e.key === "Enter" && handleQuery()} placeholder="DL484" style={{ textTransform: "uppercase", letterSpacing: "1px" }} /></div><div className="flex-1"><Label>DATE</Label><DatePicker value={bDt} onChange={setBDt} /></div><div className="flex items-end"><button onClick={handleQuery} disabled={bLoading || !bFN.trim()} className="w-full sm:w-auto px-4 py-2.5 rounded text-xs font-bold tracking-widest" style={{ background: bFN.trim() ? "var(--bg-surface)" : "var(--bg-surface)", color: bFN.trim() ? "var(--accent-flight)" : "var(--text-tertiary)", border: "1px solid var(--border-primary)", fontFamily: FONT, fontSize: "9px" }}>{bLoading ? <Spinner /> : "QUERY"}</button></div></div>{bAF && <div className="rounded border p-2.5 mb-2" style={{ background: "var(--bg-surface)", borderColor: "var(--accent-flight)" }}><div className="flex items-center gap-2 mb-1"><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--accent-flight)" }} /><span className="relative inline-flex rounded-full h-2 w-2" style={{ background: "var(--accent-flight)" }} /></span><span className="text-xs font-bold" style={{ color: "var(--accent-flight)", fontFamily: FONT, fontSize: "9px" }}>MATCH</span></div><div className="grid grid-cols-2 gap-x-4 gap-y-0.5">{[["CARRIER", bAF.carrier], ["ROUTE", `${bAF.origin.code} \u2192 ${bAF.destination.code}`], ["DEP", formatTime(bAF.origin.scheduled)], ["ARR", formatTime(bAF.destination.scheduled)]].map(([l, v]) => <div key={l} className="flex items-baseline gap-1.5"><span className="text-xs" style={{ color: "var(--text-secondary)", fontFamily: FONT, fontSize: "8px", minWidth: 40 }}>{l}</span><span className="text-xs" style={{ color: "var(--text-primary)", fontFamily: FONT }}>{v}</span></div>)}</div></div>}{bErr && <p className="mb-2 text-xs font-bold" style={{ color: "var(--accent-flight)", fontFamily: FONT, fontSize: "9px" }}>{bErr}</p>}{bFlightOptions && (<div className="mb-2"><p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--accent-flight)", marginBottom: 6 }}>{bFlightOptions.length} FLIGHTS FOUND — SELECT ONE</p><div style={{ display: "flex", flexDirection: "column", gap: 4 }}>{bFlightOptions.map((opt, i) => (<button key={i} onClick={() => selectFlightDetail(opt)} className="tappable-card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderRadius: 4, border: "1px solid var(--border-primary)", background: "var(--bg-surface)", cursor: "pointer", textAlign: "left" }}><span style={{ fontFamily: FONT, fontSize: "11px", fontWeight: 600, color: "var(--accent-flight-bright)" }}>{opt.origin.code} → {opt.destination.code}</span><span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{opt.origin.scheduled ? formatTime(opt.origin.scheduled) : "—"} → {opt.destination.scheduled ? formatTime(opt.destination.scheduled) : "—"}</span></button>))}</div></div>)}</>)}
                 {bType === "hotel" && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><div className="sm:col-span-2"><Label>PROPERTY</Label><PlaceAutocomplete value={bHN} onChange={setBHN} onSelect={(p) => setBHPlace(p)} placeholder="Park Hyatt Tokyo" types="lodging" />{bHPlace && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{bHPlace.address}</p>}{bHPlace?.lat && <div className="mt-2"><MiniMap lat={bHPlace.lat} lng={bHPlace.lng} zoom={15} height={100} label={bHPlace.name || bHN} /></div>}</div><div><Label>CONF NO.</Label><Input value={bHC} onChange={e => setBHC(e.target.value)} placeholder="Optional" /></div><div style={{}}></div><div><Label>CHECK-IN</Label><DatePicker value={bHI} onChange={setBHI} /></div><div><Label>CHECK-OUT</Label><DatePicker value={bHO} onChange={setBHO} /></div></div>}
                 {(bType === "train" || bType === "bus") && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><div><Label>ORIGIN</Label><PlaceAutocomplete value={bO} onChange={setBO} onSelect={(p) => setBOPlace(p)} placeholder="Penn Station, NYC" types="transit_station|train_station|locality" />{bOPlace && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{bOPlace.address}</p>}</div><div><Label>DEST</Label><PlaceAutocomplete value={bD} onChange={setBD} onSelect={(p) => setBDPlace(p)} placeholder="Union Station, DC" types="transit_station|train_station|locality" />{bDPlace && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{bDPlace.address}</p>}</div><div><Label>DATE</Label><DatePicker value={bDt} onChange={setBDt} /></div><div><Label>TIME (OPT)</Label><Input type="time" value={bTm} onChange={e => setBTm(e.target.value)} /></div></div>}
                 <div className="flex items-center justify-between mt-3 pt-3 pb-1" style={{ borderTop: "1px solid var(--border-primary)", position: "sticky", bottom: 0, background: "var(--bg-surface)", zIndex: 2 }}><button onClick={() => { setShowLegBuilder(false); resetBuilder(); }} className="px-4 py-3 rounded text-xs font-bold tracking-widest" style={{ color: "var(--text-secondary)", fontFamily: FONT, fontSize: "10px" }}>CANCEL</button><button onClick={addLeg} disabled={!canConfirm()} className="px-6 py-3 rounded text-xs font-bold tracking-widest" style={{ background: canConfirm() ? "var(--accent-flight)" : "var(--bg-surface)", color: canConfirm() ? "var(--bg-primary)" : "var(--text-tertiary)", fontFamily: FONT, fontSize: "10px" }}>ADD LEG</button></div>
@@ -2580,7 +2584,7 @@ function CreatePage() {
   // Leg builder state
   const [bType, setBType] = useState("flight");
   // Flight
-  const [bFN, setBFN] = useState(""); const [bLoading, setBLoading] = useState(false); const [bAF, setBAF] = useState(null); const [bErr, setBErr] = useState(null);
+  const [bFN, setBFN] = useState(""); const [bLoading, setBLoading] = useState(false); const [bAF, setBAF] = useState(null); const [bErr, setBErr] = useState(null); const [bFlightOptions, setBFlightOptions] = useState(null);
   const [fOrigin, setFOrigin] = useState(""); const [fDest, setFDest] = useState("");
   const [fDepart, setFDepart] = useState(""); const [fArrive, setFArrive] = useState("");
   const [fCarrier, setFCarrier] = useState(""); const [fFlightNo, setFFlightNo] = useState("");
@@ -2634,7 +2638,7 @@ function CreatePage() {
       const endIso = last.arrive_time || last.depart_time;
       if (endIso) { const d = new Date(endIso.split("T")[0]); d.setDate(d.getDate() + 1); defDate = d.toISOString().split("T")[0]; }
     }
-    setBFN(""); setBLoading(false); setBAF(null); setBErr(null);
+    setBFN(""); setBLoading(false); setBAF(null); setBErr(null); setBFlightOptions(null);
     setFOrigin(""); setFDest(""); setFDepart(""); setFArrive(""); setFCarrier(""); setFFlightNo(""); setFDate(defDate); setFArriveDate("");
     setHName(""); setHPlace(null); setHCheckIn(defDate); setHCheckOut(tripEnd || ""); setHLocation("");
     setTOrigin(""); setTDest(""); setTOPlace(null); setTDPlace(null); setTDepart(""); setTArrive(""); setTOperator(""); setTNumber(""); setTDate(defDate);
@@ -2643,18 +2647,23 @@ function CreatePage() {
 
   // Flight lookup
   const [queryDisabled, setQueryDisabled] = useState(false);
+  const selectFlight = (af) => {
+    setBAF(af); setBFlightOptions(null);
+    setFOrigin(af.origin.code || "");
+    setFDest(af.destination.code || "");
+    if (af.origin.scheduled) { setFDepart(af.origin.scheduled.substring(11, 16)); if (!fDate) setFDate(af.origin.scheduled.substring(0, 10)); }
+    if (af.destination.scheduled) { setFArrive(af.destination.scheduled.substring(11, 16)); setFArriveDate(af.destination.scheduled.substring(0, 10)); }
+    setFCarrier(af.carrier || "");
+    setFFlightNo(af.callsign || "");
+  };
   const handleQuery = async () => {
-    if (!bFN.trim() || queryDisabled) return; setBLoading(true); setBErr(null); setBAF(null);
+    if (!bFN.trim() || queryDisabled) return; setBLoading(true); setBErr(null); setBAF(null); setBFlightOptions(null);
     try {
       const r = await api(`/flights/lookup?callsign=${bFN.trim().toUpperCase()}${fDate ? `&date=${fDate}` : ""}`);
-      const af = mapFlightLookup(r);
-      setBAF(af);
-      setFOrigin(af.origin.code || "");
-      setFDest(af.destination.code || "");
-      if (af.origin.scheduled) { setFDepart(af.origin.scheduled.substring(11, 16)); }
-      if (af.destination.scheduled) { setFArrive(af.destination.scheduled.substring(11, 16)); setFArriveDate(af.destination.scheduled.substring(0, 10)); }
-      setFCarrier(af.carrier || "");
-      setFFlightNo(af.callsign || "");
+      const results = mapFlightResults(r);
+      if (results.length === 1) { selectFlight(results[0]); }
+      else if (results.length > 1) { setBFlightOptions(results); }
+      else { setBErr("Flight not found \u2014 try another callsign or enter manually"); }
     } catch (e) {
       const msg = e?.message || "";
       if (msg.includes("429") || msg.toLowerCase().includes("rate")) { setBErr("STAND BY \u2014 too many lookups. Try again in a moment."); setQueryDisabled(true); setTimeout(() => setQueryDisabled(false), 10000); }
@@ -2948,6 +2957,25 @@ function CreatePage() {
             </div>
             <p style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)", marginTop: 6 }}>Or enter details manually below</p>
             {bErr && <p style={{ fontFamily: FONT, fontSize: "8px", color: "#e84233", marginTop: 4 }}>{bErr}</p>}
+            {bFlightOptions && (
+              <div style={{ marginTop: 8 }}>
+                <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--accent-flight)", marginBottom: 6 }}>{bFlightOptions.length} FLIGHTS FOUND — SELECT ONE</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {bFlightOptions.map((opt, i) => (
+                    <button key={i} onClick={() => selectFlight(opt)} className="tappable-card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", borderRadius: 6, border: "1px solid var(--border-primary)", background: "var(--bg-surface)", cursor: "pointer", textAlign: "left" }}>
+                      <div>
+                        <span style={{ fontFamily: FONT, fontSize: "12px", fontWeight: 600, color: "var(--accent-flight-bright)", letterSpacing: "1px" }}>{opt.origin.code} → {opt.destination.code}</span>
+                        <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", marginLeft: 10 }}>{opt.carrier}</span>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-primary)" }}>{opt.origin.scheduled ? formatTime(opt.origin.scheduled) : "—"} → {opt.destination.scheduled ? formatTime(opt.destination.scheduled) : "—"}</span>
+                        {opt.flight_date && <span style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)", marginLeft: 8 }}>{opt.flight_date}</span>}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Manual fields */}

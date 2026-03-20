@@ -8,11 +8,11 @@ async function lookup(req, res) {
   }
 
   try {
-    const result = await lookupFlight(callsign, date);
-    if (!result) {
+    const results = await lookupFlight(callsign, date);
+    if (!results || results.length === 0) {
       return res.status(404).json({ error: 'No matching flight found' });
     }
-    res.json(result);
+    res.json({ flights: results });
   } catch (err) {
     const status = err.message.includes('rate limit') ? 429 : 400;
     res.status(status).json({ error: err.message });
