@@ -303,6 +303,7 @@ function formatDuration(d, a, origin, destination) {
   const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
   return h > 0 ? `${h}H ${m}M` : `${m}M`;
 }
+function calcNights(leg) { if (leg.metadata?.nights) return leg.metadata.nights; if (!leg.depart_time || !leg.arrive_time) return 1; const ci = leg.depart_time.split("T")[0], co = leg.arrive_time.split("T")[0]; return Math.max(1, Math.round((new Date(co) - new Date(ci)) / 86400000)); }
 function interpolateGC(p1, p2, n = 60) { const i = d3.geoInterpolate(p1, p2); return Array.from({ length: n + 1 }, (_, k) => i(k / n)); }
 function getLivePos(leg) { if (leg.status !== "in_air" && leg.status !== "in_transit") return null; const dep = new Date(leg.actual_depart || leg.depart_time).getTime(), arr = new Date(leg.arrive_time).getTime(), prog = Math.max(0, Math.min(1, (Date.now() - dep) / (arr - dep))), pos = d3.geoInterpolate([leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat])(prog); return { lng: pos[0], lat: pos[1], progress: prog }; }
 
@@ -903,12 +904,25 @@ function FollowingTab({ following, setFollowing, fetchData, navigate, mode }) {
     setClaimStatus("checking"); setClaimError(null);
     try {
       const res = await api("/squawk/claim", { method: "POST", body: JSON.stringify({ code: compactCode }) });
-      setClaimedTrip(res?.trip_title || "Trip");
-      setClaimStatus("success");
-      setTimeout(() => { fetchData(); setCompactCode(""); setClaimStatus(null); setClaimedTrip(null); }, 2500);
+      const tripName = res?.trip_title || "Trip";
+      // Check if already following
+      const alreadyFollowing = following.some(t => t.id === res?.trip_id);
+      if (alreadyFollowing) {
+        setClaimedTrip(tripName); setClaimStatus("already");
+        setTimeout(() => { setCompactCode(""); setClaimStatus(null); setClaimedTrip(null); }, 3000);
+      } else {
+        setClaimedTrip(tripName); setClaimStatus("success");
+        setTimeout(() => { fetchData(); setCompactCode(""); setClaimStatus(null); setClaimedTrip(null); }, 2500);
+      }
     } catch (e) {
-      setClaimStatus("error"); setClaimError("Invalid or expired code");
-      setTimeout(() => { setCompactCode(""); setClaimStatus(null); setClaimError(null); }, 2000);
+      const msg = e?.message || "";
+      if (msg.toLowerCase().includes("already")) {
+        setClaimedTrip("Trip"); setClaimStatus("already");
+        setTimeout(() => { setCompactCode(""); setClaimStatus(null); setClaimedTrip(null); }, 3000);
+      } else {
+        setClaimStatus("error"); setClaimError("Invalid or expired code");
+        setTimeout(() => { setCompactCode(""); setClaimStatus(null); setClaimError(null); }, 2000);
+      }
     }
   };
 
@@ -965,7 +979,7 @@ function FollowingTab({ following, setFollowing, fetchData, navigate, mode }) {
     const busCount = trip.legs?.filter(l => l.type === "bus").length || 0;
 
     return (
-      <div key={trip.id} style={{ opacity, border: "1px solid var(--border-primary)", borderRadius: 6, padding: 12, background: "var(--bg-card)", borderLeftWidth: 3, borderLeftColor: presence.mode === "transit" ? "var(--strip-flight)" : presence.mode === "dwelling" ? "var(--strip-hotel)" : "var(--border-primary)", borderLeftStyle: "solid" }}>
+      <div key={trip.id} className="tappable-card" style={{ opacity, border: "1px solid var(--border-primary)", borderRadius: 6, padding: 12, background: "var(--bg-card)", borderLeftWidth: 3, borderLeftColor: presence.mode === "transit" ? "var(--strip-flight)" : presence.mode === "dwelling" ? "var(--strip-hotel)" : "var(--border-primary)", borderLeftStyle: "solid" }}>
         <button onClick={() => navigate("shared", { tripId: trip.id })} className="w-full text-left" style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -978,7 +992,7 @@ function FollowingTab({ following, setFollowing, fetchData, navigate, mode }) {
             </div>
           </div>
 
-          <p style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 600, color: "var(--text-heading)", marginBottom: 6 }}>{trip.title}</p>
+          <p style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 600, color: "var(--text-heading)", marginBottom: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{trip.title}</p>
 
           <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", marginBottom: 8 }}>{formatDateRange(trip.start_date, trip.end_date)}</p>
 
@@ -1049,11 +1063,11 @@ function FollowingTab({ following, setFollowing, fetchData, navigate, mode }) {
   return (
     <div>
       <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border-subtle)" }}>
-        {claimStatus === "success" ? (
+        {claimStatus === "success" || claimStatus === "already" ? (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "8px 0" }}>
             <span style={{ color: "var(--accent-flight-bright)", fontSize: "14px" }}>{"\u2713"}</span>
-            <span style={{ fontFamily: FONT, fontSize: "11px", letterSpacing: "3px", color: "var(--accent-flight-bright)", fontWeight: 500 }}>LINKED</span>
-            <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{claimedTrip}</span>
+            <span style={{ fontFamily: FONT, fontSize: "11px", letterSpacing: "3px", color: "var(--accent-flight-bright)", fontWeight: 500 }}>{claimStatus === "already" ? "ALREADY TRACKING" : "LINKED"}</span>
+            <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{claimStatus === "already" ? `${claimedTrip} is already in your feed` : claimedTrip}</span>
           </div>
         ) : (
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -1127,12 +1141,30 @@ function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const [refreshing, setRefreshing] = useState(false);
+  const [badgePulse, setBadgePulse] = useState(false);
   const fetchData = async () => {
     setLoading(true); setError(null);
     try { const [my, fol] = await Promise.all([api("/trips"), api("/trips/following")]); setTrips((my || []).map(mapTrip)); setFollowing((fol || []).map(mapTrip)); } catch (e) { setError(e.message); }
     setLoading(false);
   };
+  const fetchDataWithPulse = async () => { await fetchData(); setBadgePulse(true); setTimeout(() => setBadgePulse(false), 400); };
+  const refresh = async () => { setRefreshing(true); try { const [my, fol] = await Promise.all([api("/trips"), api("/trips/following")]); setTrips((my || []).map(mapTrip)); setFollowing((fol || []).map(mapTrip)); } catch {} setRefreshing(false); };
   useEffect(() => { fetchData(); }, []);
+  // Scroll memory: restore position on mount
+  useEffect(() => { const saved = sessionStorage.getItem("dashboard-scroll"); if (saved) { setTimeout(() => { window.scrollTo(0, parseInt(saved)); sessionStorage.removeItem("dashboard-scroll"); }, 100); } }, [loading]);
+  // Save scroll pos before navigating away
+  const navWithScroll = (page, params) => { sessionStorage.setItem("dashboard-scroll", String(window.scrollY)); navigate(page, params); };
+
+  // Pull-to-refresh
+  const pullRef = useRef({ startY: 0, pulling: false });
+  useEffect(() => {
+    const onStart = (e) => { if (window.scrollY <= 0) pullRef.current = { startY: e.touches[0].clientY, pulling: true }; };
+    const onMove = (e) => { if (!pullRef.current.pulling) return; const dy = e.touches[0].clientY - pullRef.current.startY; if (dy > 80 && !refreshing) { pullRef.current.pulling = false; refresh(); } };
+    const onEnd = () => { pullRef.current.pulling = false; };
+    window.addEventListener("touchstart", onStart, { passive: true }); window.addEventListener("touchmove", onMove, { passive: true }); window.addEventListener("touchend", onEnd);
+    return () => { window.removeEventListener("touchstart", onStart); window.removeEventListener("touchmove", onMove); window.removeEventListener("touchend", onEnd); };
+  }, [refreshing]);
 
   if (loading) return <LoadingScreen />;
   if (error) return <div className="text-center py-12"><p className="text-xs" style={{ color: "var(--accent-flight)", fontFamily: FONT }}>{error}</p><button onClick={fetchData} className="mt-3 text-xs font-bold tracking-widest" style={{ color: "var(--text-secondary)", fontFamily: FONT }}>RETRY</button></div>;
@@ -1153,12 +1185,14 @@ function DashboardPage() {
 
   return (
     <div>
+      {/* Pull-to-refresh spinner */}
+      {refreshing && <div style={{ display: "flex", justifyContent: "center", padding: "12px 0" }}><Spinner /></div>}
       {/* Tab bar */}
       <div className="flex gap-6" style={{ padding: "14px 16px 0", borderBottom: "1px solid var(--border-subtle)" }}>
         {[{ key: "my_trips", label: "MY ITINERARIES" }, { key: "following", label: "FOLLOWING" }].map(t => (
           <button key={t.key} onClick={() => setTab(t.key)} className="relative pb-3" style={{ fontFamily: FONT, fontSize: "10px", letterSpacing: "3px", fontWeight: tab === t.key ? 500 : 400, color: tab === t.key ? "var(--accent-flight-bright)" : "var(--text-tertiary)", minHeight: 44, display: "flex", alignItems: "center" }}>
             {t.label}{t.key === "following" && following.length > 0 && (
-              <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 18, height: 18, borderRadius: 9, padding: "0 5px", marginLeft: 6, border: "1px solid var(--accent-flight)", fontFamily: FONT, fontSize: "9px", fontWeight: 600, color: "var(--accent-flight-bright)" }}>{following.length}</span>
+              <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 18, height: 18, borderRadius: 9, padding: "0 5px", marginLeft: 6, border: "1px solid var(--accent-flight)", fontFamily: FONT, fontSize: "9px", fontWeight: 600, color: "var(--accent-flight-bright)", animation: badgePulse ? "badge-pulse 0.4s ease-in-out" : "none" }}>{following.length}</span>
             )}
             {tab === t.key && <div className="absolute bottom-0 left-0 right-0 h-0.5" style={{ background: "var(--accent-flight-bright)" }} />}
           </button>
@@ -1166,7 +1200,7 @@ function DashboardPage() {
       </div>
 
       {tab === "following" ? (
-        <FollowingTab following={following} setFollowing={setFollowing} fetchData={fetchData} navigate={navigate} mode={mode} />
+        <FollowingTab following={following} setFollowing={setFollowing} fetchData={fetchDataWithPulse} navigate={navWithScroll} mode={mode} />
       ) : (
         <>
           {/* Filter pills */}
@@ -1185,7 +1219,7 @@ function DashboardPage() {
           {/* Trip cards */}
           <div className="px-4 py-4">
             {trips.length === 0 ? (
-              <button onClick={() => navigate("create")} className="w-full text-left" style={{ border: "1px dashed var(--border-primary)", borderRadius: 6, padding: "24px 14px", textAlign: "center" }}>
+              <button onClick={() => navWithScroll("create")} className="w-full text-left tappable-card" style={{ border: "1px dashed var(--border-primary)", borderRadius: 6, padding: "24px 14px", textAlign: "center" }}>
                 <p style={{ fontFamily: FONT, fontSize: "12px", letterSpacing: "1px", color: "var(--text-secondary)", marginBottom: 8 }}>FILE YOUR FIRST FLIGHT PLAN</p>
                 <p style={{ fontFamily: FONT, fontSize: "16px", fontWeight: 700, letterSpacing: "2px", color: "var(--text-tertiary)", marginBottom: 8 }}>??? {"→"} ???</p>
                 <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>Tap FILE to begin tracking</p>
@@ -1196,9 +1230,9 @@ function DashboardPage() {
                   <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-tertiary)", marginBottom: 10 }}>PAST</p>
                   <div className="flex flex-col gap-2">
                     {past.map(trip => (
-                      <button key={trip.id} onClick={() => navigate("detail", { tripId: trip.id })} className="w-full text-left" style={{ opacity: 0.5, border: "1px solid var(--border-primary)", borderLeft: "3px solid var(--strip-flight)", borderRadius: 6, padding: 14, background: "var(--bg-card)" }}>
+                      <button key={trip.id} onClick={() => navWithScroll("detail", { tripId: trip.id })} className="w-full text-left tappable-card" style={{ opacity: 0.5, border: "1px solid var(--border-primary)", borderLeft: "3px solid var(--strip-flight)", borderRadius: 6, padding: 14, background: "var(--bg-card)" }}>
                         <div className="flex items-center justify-between mb-1">
-                          <h3 style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 600, color: "var(--text-heading)" }}>{trip.title}</h3>
+                          <h3 style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 600, color: "var(--text-heading)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{trip.title}</h3>
                         </div>
                         <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", letterSpacing: "0.5px", marginBottom: 6 }}>{formatDateRange(trip.start_date, trip.end_date)}</p>
                         <InlineRoute legs={trip.legs} codeSize="14px" />
@@ -1225,9 +1259,9 @@ function DashboardPage() {
                       const liveLeg = trip.legs?.find(l => l.status === "in_air" || l.status === "in_transit");
                       const livePos = liveLeg ? getLivePos(liveLeg) : null;
                       return (
-                        <button key={trip.id} onClick={() => navigate("detail", { tripId: trip.id })} className="w-full text-left mb-2" style={{ border: "1px solid var(--border-primary)", borderLeft: "3px solid var(--strip-flight)", borderRadius: 6, padding: 14, background: "var(--bg-card)" }}>
+                        <button key={trip.id} onClick={() => navWithScroll("detail", { tripId: trip.id })} className="w-full text-left mb-2 tappable-card" style={{ border: "1px solid var(--border-primary)", borderLeft: "3px solid var(--strip-flight)", borderRadius: 6, padding: 14, background: "var(--bg-card)" }}>
                           <div className="flex items-center justify-between mb-2">
-                            <h3 style={{ fontFamily: FONT, fontSize: "16px", fontWeight: 600, color: "var(--text-heading)" }}>{trip.title}</h3>
+                            <h3 style={{ fontFamily: FONT, fontSize: "16px", fontWeight: 600, color: "var(--text-heading)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{trip.title}</h3>
                             <span className="inline-flex items-center gap-1.5 px-2 py-1" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: "var(--accent-flight-bright)", border: "1px solid var(--accent-flight)", borderRadius: 4 }}>
                               <span className="relative flex h-1.5 w-1.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--accent-flight)" }} /><span className="relative inline-flex rounded-full h-1.5 w-1.5" style={{ background: "var(--accent-flight)" }} /></span>
                               EN ROUTE
@@ -1262,14 +1296,14 @@ function DashboardPage() {
                 {nextDep && (
                   <div className="mb-4">
                     <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-secondary)", marginBottom: 10, fontWeight: 700 }}>NEXT DEPARTURE</p>
-                    <button onClick={() => navigate("detail", { tripId: nextDep.id })} className="w-full text-left" style={{ border: "1px solid var(--border-primary)", borderLeft: "3px solid var(--strip-flight)", borderRadius: 6, padding: 14, background: "var(--bg-card)" }}>
+                    <button onClick={() => navWithScroll("detail", { tripId: nextDep.id })} className="w-full text-left tappable-card" style={{ border: "1px solid var(--border-primary)", borderLeft: "3px solid var(--strip-flight)", borderRadius: 6, padding: 14, background: "var(--bg-card)" }}>
                       <div className="flex items-center justify-between mb-1">
-                        <h3 style={{ fontFamily: FONT, fontSize: "16px", fontWeight: 600, color: "var(--text-heading)" }}>{nextDep.title}</h3>
+                        <h3 style={{ fontFamily: FONT, fontSize: "16px", fontWeight: 600, color: "var(--text-heading)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, marginRight: 8 }}>{nextDep.title}</h3>
                         <span className="px-2.5 py-1 shrink-0" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: "var(--accent-countdown)", border: "1px solid var(--accent-hotel-dim)", borderRadius: 4, fontWeight: 500 }}>{getCountdown(nextDep).text}</span>
                       </div>
                       <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", letterSpacing: "0.5px", marginBottom: 8 }}>{formatDateRange(nextDep.start_date, nextDep.end_date)}</p>
-                      <div style={{ marginBottom: 8 }}><InlineRoute legs={nextDep.legs} codeSize="16px" /></div>
-                      <DashLegIndicators legs={nextDep.legs} showTotal={true} />
+                      {nextDep.legs?.length > 0 ? (<><div style={{ marginBottom: 8 }}><InlineRoute legs={nextDep.legs} codeSize="16px" /></div>
+                      <DashLegIndicators legs={nextDep.legs} showTotal={true} /></>) : <p style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: "var(--text-tertiary)" }}>NO LEGS FILED</p>}
                     </button>
                   </div>
                 )}
@@ -1284,14 +1318,13 @@ function DashboardPage() {
                         const days = Math.max(0, Math.floor(ms / 86400000));
                         const shortCd = ms > 0 ? `T-${days}D` : null;
                         return (
-                          <button key={trip.id} onClick={() => navigate("detail", { tripId: trip.id })} className="w-full text-left" style={{ opacity: mode === "day" ? 0.55 : 0.65, border: "1px solid var(--border-primary)", borderLeft: "3px solid var(--strip-flight)", borderRadius: 6, padding: 14, background: "var(--bg-card)" }}>
+                          <button key={trip.id} onClick={() => navWithScroll("detail", { tripId: trip.id })} className="w-full text-left tappable-card" style={{ opacity: mode === "day" ? 0.55 : 0.65, border: "1px solid var(--border-primary)", borderLeft: "3px solid var(--strip-flight)", borderRadius: 6, padding: 14, background: "var(--bg-card)" }}>
                             <div className="flex items-center justify-between mb-1">
-                              <h3 style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 600, color: "var(--text-heading)" }}>{trip.title}</h3>
+                              <h3 style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 600, color: "var(--text-heading)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, marginRight: 8 }}>{trip.title}</h3>
                               {shortCd && <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{shortCd}</span>}
                             </div>
                             <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", letterSpacing: "0.5px", marginBottom: 6 }}>{formatDateRange(trip.start_date, trip.end_date)}</p>
-                            <InlineRoute legs={trip.legs} codeSize="14px" />
-                            <div className="mt-2"><DashLegIndicators legs={trip.legs} showTotal={false} /></div>
+                            {trip.legs?.length > 0 ? (<><InlineRoute legs={trip.legs} codeSize="14px" /><div className="mt-2"><DashLegIndicators legs={trip.legs} showTotal={false} /></div></>) : <p style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: "var(--text-tertiary)" }}>NO LEGS FILED</p>}
                           </button>
                         );
                       })}
@@ -1305,7 +1338,7 @@ function DashboardPage() {
                     <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-tertiary)", marginBottom: 10 }}>PAST</p>
                     <div className="flex flex-col gap-2">
                       {past.map(trip => (
-                        <button key={trip.id} onClick={() => navigate("detail", { tripId: trip.id })} className="w-full text-left" style={{ opacity: 0.5, border: "1px solid var(--border-primary)", borderLeft: "3px solid var(--strip-flight)", borderRadius: 6, padding: 14, background: "var(--bg-card)" }}>
+                        <button key={trip.id} onClick={() => navWithScroll("detail", { tripId: trip.id })} className="w-full text-left" style={{ opacity: 0.5, border: "1px solid var(--border-primary)", borderLeft: "3px solid var(--strip-flight)", borderRadius: 6, padding: 14, background: "var(--bg-card)" }}>
                           <div className="flex items-center justify-between mb-1">
                             <h3 style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 600, color: "var(--text-heading)" }}>{trip.title}</h3>
                           </div>
@@ -1358,7 +1391,7 @@ function computeTripStats(legs) {
       // Estimate flight time from distance (avoids cross-timezone errors)
       if (nm > 0) airHrs += nm / 460 + 0.5; // cruise speed + taxi/climb/descent
     }
-    if (l.type === "hotel") hotelNights += l.metadata?.nights || (l.depart_time && l.arrive_time ? Math.max(1, Math.round((new Date(l.arrive_time) - new Date(l.depart_time)) / 86400000)) : 1);
+    if (l.type === "hotel") hotelNights += calcNights(l);
   });
   const airH = Math.floor(airHrs), airM = Math.round((airHrs - airH) * 60);
   return { totalNM: Math.round(totalNM), airTime: airHrs > 0 ? `~${airH}H ${airM}M` : "0H", hotelNights };
@@ -1393,8 +1426,7 @@ function RouteSummaryBar({ legs }) {
   legs.forEach((leg, i) => {
     const isHotel = leg.type === "hotel";
     if (isHotel) {
-      const nights = leg.metadata?.nights || (leg.depart_time && leg.arrive_time ? Math.max(1, Math.round((new Date(leg.arrive_time) - new Date(leg.depart_time)) / 86400000)) : 1);
-      segments.push({ type: "hotel", label: `${nights}N`, city: leg.origin?.city });
+      segments.push({ type: "hotel", label: `${calcNights(leg)}N`, city: leg.origin?.city });
     } else {
       const dur = formatDuration(leg.depart_time, leg.arrive_time, leg.origin, leg.destination);
       segments.push({ type: "transport", origin: leg.origin?.code || leg.origin?.city?.slice(0, 3)?.toUpperCase() || "?", destination: leg.destination?.code || leg.destination?.city?.slice(0, 3)?.toUpperCase() || "?", duration: dur, legType: leg.type });
@@ -1429,7 +1461,7 @@ function RouteSummaryBar({ legs }) {
 // MAP (radar aesthetic)
 // ═══════════════════════════════════════════════════════════════════
 
-function TripMap({ trip, activeLegIndex, mode }) {
+function TripMap({ trip, activeLegIndex, mode, isSharedView }) {
   const svgRef = useRef(null), containerRef = useRef(null), zoomRef = useRef(null);
   const draw = useCallback(() => {
     const el = containerRef.current, svg = d3.select(svgRef.current); if (!el) return;
@@ -1473,8 +1505,9 @@ function TripMap({ trip, activeLegIndex, mode }) {
     trip.legs?.forEach(leg => {
       if (leg.type === "hotel" && leg.origin?.lat != null) {
         const [hx, hy] = proj([leg.origin.lng, leg.origin.lat]);
-        g.append("circle").attr("cx", hx).attr("cy", hy).attr("r", 22).attr("fill", "var(--map-dwell-glow)");
-        g.append("circle").attr("cx", hx).attr("cy", hy).attr("r", 16).attr("fill", "var(--accent-hotel)").attr("opacity", 0.08);
+        const glowR = isSharedView ? 35 : 22, innerR = isSharedView ? 26 : 16;
+        g.append("circle").attr("cx", hx).attr("cy", hy).attr("r", glowR).attr("fill", "var(--map-dwell-glow)");
+        g.append("circle").attr("cx", hx).attr("cy", hy).attr("r", innerR).attr("fill", "var(--accent-hotel)").attr("opacity", 0.08);
       }
     });
 
@@ -1743,13 +1776,25 @@ function DetailPage({ tripId }) {
   const [showLegBuilder, setShowLegBuilder] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [showDeleteTrip, setShowDeleteTrip] = useState(false);
+  const [deletingTrip, setDeletingTrip] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
   const [bType, setBType] = useState("flight");
   const [bFN, setBFN] = useState(""); const [bLoading, setBLoading] = useState(false); const [bAF, setBAF] = useState(null); const [bErr, setBErr] = useState(null);
   const [bHN, setBHN] = useState(""); const [bHC, setBHC] = useState(""); const [bHI, setBHI] = useState(""); const [bHO, setBHO] = useState("");
   const [bHPlace, setBHPlace] = useState(null); // { lat, lng, city, address }
   const [bO, setBO] = useState(""); const [bD, setBD] = useState(""); const [bDt, setBDt] = useState(""); const [bTm, setBTm] = useState("");
   const [bOPlace, setBOPlace] = useState(null); const [bDPlace, setBDPlace] = useState(null);
-  const resetBuilder = () => { const sd = trip?.start_date || ""; const ed = trip?.end_date || ""; setBFN(""); setBLoading(false); setBAF(null); setBErr(null); setBHN(""); setBHC(""); setBHI(sd); setBHO(ed); setBHPlace(null); setBO(""); setBD(""); setBDt(sd); setBTm(""); setBOPlace(null); setBDPlace(null); };
+  const resetBuilder = () => {
+    const sd = trip?.start_date || "", ed = trip?.end_date || "";
+    let defDate = sd;
+    if (trip?.legs?.length) {
+      const last = trip.legs[trip.legs.length - 1];
+      const endIso = last.type === "hotel" ? (last.arrive_time || last.depart_time) : (last.arrive_time || last.depart_time);
+      if (endIso) { const d = new Date(endIso.split("T")[0]); d.setDate(d.getDate() + 1); defDate = d.toISOString().split("T")[0]; }
+    }
+    setBFN(""); setBLoading(false); setBAF(null); setBErr(null); setBHN(""); setBHC(""); setBHI(defDate || sd); setBHO(ed); setBHPlace(null); setBO(""); setBD(""); setBDt(defDate || sd); setBTm(""); setBOPlace(null); setBDPlace(null);
+  };
   const typeCfg = { flight: { label: "FLIGHT", color: "var(--strip-flight)" }, hotel: { label: "GROUND STOP", color: "var(--strip-hotel)" }, train: { label: "TRAIN", color: "#d4628a" }, bus: { label: "BUS", color: "#7c6bb4" } };
 
   const fetchTrip = async () => { setLoading(true); try { const t = await api(`/trips/${tripId}`); setTrip(mapTrip(t)); } catch (e) { setTrip(null); } setLoading(false); };
@@ -1758,10 +1803,12 @@ function DetailPage({ tripId }) {
 
   const enterEdit = () => { if (!trip) return; setEditing(true); setEditTitle(trip.title); setEditStart(trip.start_date); setEditEnd(trip.end_date); };
   const saveEdit = async () => { setSaving(true); try { await api(`/trips/${trip.id}`, { method: "PUT", body: JSON.stringify({ title: editTitle, start_date: editStart, end_date: editEnd }) }); setTrip(prev => ({ ...prev, title: editTitle, start_date: editStart, end_date: editEnd })); setEditing(false); } catch (e) { alert(e.message); } setSaving(false); };
-  const cancelEdit = () => { setEditing(false); setShowLegBuilder(false); setConfirmDelete(null); resetBuilder(); };
+  const cancelEdit = () => { setEditing(false); setShowLegBuilder(false); setConfirmDelete(null); setShowDeleteTrip(false); setDeleteError(null); resetBuilder(); };
+  const deleteTrip = async () => { setDeletingTrip(true); setDeleteError(null); try { await api(`/trips/${trip.id}`, { method: "DELETE" }); navigate("dashboard"); } catch { setDeleteError("Failed to delete \u2014 try again"); } setDeletingTrip(false); };
   const removeLeg = async (legId) => { try { await api(`/trips/${trip.id}/legs/${legId}`, { method: "DELETE" }); setTrip(prev => ({ ...prev, legs: prev.legs.filter(l => l.id !== legId) })); setConfirmDelete(null); } catch (e) { alert(e.message); } };
   const moveLeg = async (index, dir) => { const newIdx = index + dir; if (newIdx < 0 || newIdx >= trip.legs.length) return; const legs = [...trip.legs]; [legs[index], legs[newIdx]] = [legs[newIdx], legs[index]]; setTrip(prev => ({ ...prev, legs })); setActiveLeg(newIdx); try { await api(`/trips/${trip.id}/legs/reorder`, { method: "PUT", body: JSON.stringify({ leg_ids: legs.map(l => l.id) }) }); } catch (e) { fetchTrip(); } };
-  const handleQuery = async () => { if (!bFN.trim()) return; setBLoading(true); setBErr(null); setBAF(null); try { const r = await api(`/flights/lookup?callsign=${bFN.trim().toUpperCase()}`); setBAF(mapFlightLookup(r)); } catch (e) { setBErr("NO MATCH — verify callsign"); } setBLoading(false); };
+  const [queryDisabled, setQueryDisabled] = useState(false);
+  const handleQuery = async () => { if (!bFN.trim() || queryDisabled) return; setBLoading(true); setBErr(null); setBAF(null); try { const r = await api(`/flights/lookup?callsign=${bFN.trim().toUpperCase()}`); setBAF(mapFlightLookup(r)); } catch (e) { if (e?.message?.includes("429") || e?.message?.toLowerCase().includes("rate")) { setBErr("STAND BY \u2014 too many lookups. Try again in a moment."); setQueryDisabled(true); setTimeout(() => setQueryDisabled(false), 10000); } else { setBErr("NO MATCH \u2014 verify callsign"); } } setBLoading(false); };
   const canConfirm = () => { if (bType === "flight") return !!bAF; if (bType === "hotel") return bHN.trim() && bHI; return bO.trim() && bD.trim() && bDt; };
 
   const addLeg = async () => {
@@ -1769,7 +1816,15 @@ function DetailPage({ tripId }) {
     if (bType === "flight" && bAF) { newLeg = { type: "flight", origin: { code: bAF.origin.code, city: bAF.origin.airport, lat: 0, lng: 0 }, destination: { code: bAF.destination.code, city: bAF.destination.airport, lat: 0, lng: 0 }, depart_time: bAF.origin.scheduled, arrive_time: bAF.destination.scheduled, carrier: bAF.carrier, vehicle_number: bAF.callsign, metadata: { terminal: bAF.origin.terminal, gate: bAF.origin.gate } }; }
     else if (bType === "hotel") { const nights = bHO ? Math.max(1, Math.round((new Date(bHO) - new Date(bHI)) / 86400000)) : 1; const hLat = bHPlace?.lat || 0; const hLng = bHPlace?.lng || 0; const hCity = bHPlace?.city || bHN; newLeg = { type: "hotel", origin: { code: null, city: hCity, lat: hLat, lng: hLng }, destination: { code: null, city: hCity, lat: hLat, lng: hLng }, depart_time: `${bHI}T15:00:00Z`, arrive_time: bHO ? `${bHO}T11:00:00Z` : `${bHI}T11:00:00Z`, carrier: bHN, vehicle_number: null, metadata: { nights, confirmation: bHC, address: bHPlace?.address || null } }; }
     else { const oLat = bOPlace?.lat || 0; const oLng = bOPlace?.lng || 0; const dLat = bDPlace?.lat || 0; const dLng = bDPlace?.lng || 0; const oCity = bOPlace?.city || bO; const dCity = bDPlace?.city || bD; newLeg = { type: bType, origin: { code: bO.slice(0, 3).toUpperCase(), city: oCity, lat: oLat, lng: oLng }, destination: { code: bD.slice(0, 3).toUpperCase(), city: dCity, lat: dLat, lng: dLng }, depart_time: `${bDt}T${bTm || "08:00"}:00Z`, arrive_time: `${bDt}T12:00:00Z`, carrier: bType === "train" ? "Train" : "Bus", vehicle_number: null, metadata: {} }; }
-    try { const created = await api(`/trips/${trip.id}/legs`, { method: "POST", body: JSON.stringify(legToApi(newLeg)) }); const mapped = created.origin ? created : mapLeg(created); setTrip(prev => ({ ...prev, legs: [...prev.legs, mapped] })); resetBuilder(); setShowLegBuilder(false); setActiveLeg(trip.legs.length); } catch (e) { alert(e.message); }
+    try {
+      const created = await api(`/trips/${trip.id}/legs`, { method: "POST", body: JSON.stringify(legToApi(newLeg)) });
+      const mapped = created.origin ? created : mapLeg(created);
+      const newLegs = [...trip.legs, mapped].sort((a, b) => new Date(a.depart_time) - new Date(b.depart_time));
+      setTrip(prev => ({ ...prev, legs: newLegs }));
+      resetBuilder(); setShowLegBuilder(false); setActiveLeg(newLegs.length - 1);
+      // Persist sort order
+      try { await api(`/trips/${trip.id}/legs/reorder`, { method: "PUT", body: JSON.stringify({ leg_ids: newLegs.map(l => l.id) }) }); } catch {}
+    } catch (e) { alert(e.message); }
   };
 
   if (loading) return <LoadingScreen />;
@@ -1861,7 +1916,7 @@ function DetailPage({ tripId }) {
             const isDeleting = confirmDelete === leg.id;
             const cardBg = isHotel ? "var(--bg-card-hotel)" : "var(--bg-card)";
             const dur = isHotel ? "" : formatDuration(leg.depart_time, leg.arrive_time, leg.origin, leg.destination);
-            const nights = leg.metadata?.nights || (leg.depart_time && leg.arrive_time && isHotel ? Math.max(1, Math.round((new Date(leg.arrive_time) - new Date(leg.depart_time)) / 86400000)) : 0);
+            const nights = isHotel ? calcNights(leg) : 0;
 
             return (
               <div key={leg.id} className="flex">
@@ -1961,6 +2016,24 @@ function DetailPage({ tripId }) {
 
       {/* Stats footer */}
       {!editing && <StatsFooter legs={trip.legs} />}
+
+      {/* Delete trip (edit mode only) */}
+      {editing && (
+        <div style={{ padding: "8px 16px 24px", textAlign: "center" }}>
+          {showDeleteTrip ? (
+            <div>
+              <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", lineHeight: 1.5, marginBottom: 12 }}>This will permanently delete this trip and all its legs.</p>
+              <div style={{ display: "flex", justifyContent: "center", gap: 10 }}>
+                <button onClick={() => { setShowDeleteTrip(false); setDeleteError(null); }} style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: "var(--text-secondary)", padding: "10px 20px", border: "1px solid var(--border-primary)", borderRadius: 6, background: "transparent", cursor: "pointer", minHeight: 44 }}>CANCEL</button>
+                <button onClick={deleteTrip} disabled={deletingTrip} style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: "#fff", padding: "10px 20px", background: "#e84233", borderRadius: 6, border: "none", cursor: "pointer", minHeight: 44 }}>{deletingTrip ? <Spinner /> : "DELETE"}</button>
+              </div>
+              {deleteError && <p style={{ fontFamily: FONT, fontSize: "9px", color: "#e84233", marginTop: 8 }}>{deleteError}</p>}
+            </div>
+          ) : (
+            <button onClick={() => setShowDeleteTrip(true)} style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: "#e84233", background: "transparent", border: "none", cursor: "pointer", padding: "16px 0", minHeight: 44 }}>DELETE FLIGHT PLAN</button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -2009,6 +2082,8 @@ function CreatePage() {
 
   // Discard confirmation
   const [showDiscard, setShowDiscard] = useState(false);
+  const [addLegFeedback, setAddLegFeedback] = useState(false);
+  const [fileFeedback, setFileFeedback] = useState(false);
 
   const previewRef = useRef(null);
 
@@ -2030,28 +2105,38 @@ function CreatePage() {
   ];
 
   const resetBuilder = () => {
+    let defDate = tripStart || "";
+    if (legs.length) {
+      const last = legs[legs.length - 1];
+      const endIso = last.arrive_time || last.depart_time;
+      if (endIso) { const d = new Date(endIso.split("T")[0]); d.setDate(d.getDate() + 1); defDate = d.toISOString().split("T")[0]; }
+    }
     setBFN(""); setBLoading(false); setBAF(null); setBErr(null);
-    setFOrigin(""); setFDest(""); setFDepart(""); setFArrive(""); setFCarrier(""); setFFlightNo(""); setFDate(tripStart || ""); setFArriveDate("");
-    setHName(""); setHPlace(null); setHCheckIn(tripStart || ""); setHCheckOut(tripEnd || ""); setHLocation("");
-    setTOrigin(""); setTDest(""); setTOPlace(null); setTDPlace(null); setTDepart(""); setTArrive(""); setTOperator(""); setTNumber(""); setTDate(tripStart || "");
+    setFOrigin(""); setFDest(""); setFDepart(""); setFArrive(""); setFCarrier(""); setFFlightNo(""); setFDate(defDate); setFArriveDate("");
+    setHName(""); setHPlace(null); setHCheckIn(defDate); setHCheckOut(tripEnd || ""); setHLocation("");
+    setTOrigin(""); setTDest(""); setTOPlace(null); setTDPlace(null); setTDepart(""); setTArrive(""); setTOperator(""); setTNumber(""); setTDate(defDate);
     setValErrors([]);
   };
 
   // Flight lookup
+  const [queryDisabled, setQueryDisabled] = useState(false);
   const handleQuery = async () => {
-    if (!bFN.trim()) return; setBLoading(true); setBErr(null); setBAF(null);
+    if (!bFN.trim() || queryDisabled) return; setBLoading(true); setBErr(null); setBAF(null);
     try {
       const r = await api(`/flights/lookup?callsign=${bFN.trim().toUpperCase()}`);
       const af = mapFlightLookup(r);
       setBAF(af);
-      // Auto-populate manual fields
       setFOrigin(af.origin.code || "");
       setFDest(af.destination.code || "");
-      if (af.origin.scheduled) { setFDepart(af.origin.scheduled.substring(11, 16)); if (!fDate) setFDate(af.origin.scheduled.substring(0, 10)); }
+      if (af.origin.scheduled) { setFDepart(af.origin.scheduled.substring(11, 16)); }
       if (af.destination.scheduled) { setFArrive(af.destination.scheduled.substring(11, 16)); setFArriveDate(af.destination.scheduled.substring(0, 10)); }
       setFCarrier(af.carrier || "");
       setFFlightNo(af.callsign || "");
-    } catch { setBErr("Flight not found \u2014 try another callsign or enter manually"); }
+    } catch (e) {
+      const msg = e?.message || "";
+      if (msg.includes("429") || msg.toLowerCase().includes("rate")) { setBErr("STAND BY \u2014 too many lookups. Try again in a moment."); setQueryDisabled(true); setTimeout(() => setQueryDisabled(false), 10000); }
+      else { setBErr("Flight not found \u2014 try another callsign or enter manually"); }
+    }
     setBLoading(false);
   };
 
@@ -2111,8 +2196,9 @@ function CreatePage() {
     setValErrors([]);
     const leg = buildLeg();
     leg._tempId = Date.now();
-    setLegs(prev => [...prev, leg]);
+    setLegs(prev => [...prev, leg].sort((a, b) => new Date(a.depart_time || 0) - new Date(b.depart_time || 0)));
     resetBuilder();
+    setAddLegFeedback(true); setTimeout(() => setAddLegFeedback(false), 1500);
     // Scroll to preview
     setTimeout(() => { previewRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }); }, 100);
   };
@@ -2130,7 +2216,8 @@ function CreatePage() {
         const { _tempId, ...legData } = leg;
         await api(`/trips/${t.id}/legs`, { method: "POST", body: JSON.stringify(legToApi(legData)) });
       }
-      navigate("detail", { tripId: t.id });
+      setFileFeedback(true);
+      setTimeout(() => navigate("detail", { tripId: t.id }), 1000);
     } catch (e) { setFileError("Failed to file flight plan \u2014 check connection and try again"); }
     setSubmitting(false);
   };
@@ -2422,8 +2509,8 @@ function CreatePage() {
 
       {/* + ADD TO PLAN button */}
       <button onClick={handleAddLeg}
-        style={{ width: "100%", height: 44, border: "1px solid var(--border-primary)", borderRadius: 8, background: "var(--nav-bg)", color: "var(--accent-flight-bright)", fontFamily: FONT, fontSize: "10px", letterSpacing: "2px", fontWeight: 500, cursor: "pointer", margin: "12px 0" }}>
-        + ADD TO PLAN
+        style={{ width: "100%", height: 44, border: "1px solid var(--border-primary)", borderRadius: 8, background: "var(--nav-bg)", color: addLegFeedback ? "var(--accent-flight)" : "var(--accent-flight-bright)", fontFamily: FONT, fontSize: "10px", letterSpacing: "2px", fontWeight: 500, cursor: "pointer", margin: "12px 0" }}>
+        {addLegFeedback ? "ADDED" : "+ ADD TO PLAN"}
       </button>
 
       {/* ── Divider ── */}
@@ -2437,7 +2524,7 @@ function CreatePage() {
           color: tripTitle.trim() ? "var(--squawk-text)" : "var(--text-tertiary)",
           border: tripTitle.trim() ? "none" : "1px solid var(--border-subtle)",
         }}>
-        {submitting ? <span className="flex items-center justify-center gap-2"><Spinner /> FILING...</span> : "FILE FLIGHT PLAN"}
+        {fileFeedback ? "FILED" : submitting ? <span className="flex items-center justify-center gap-2"><Spinner /> FILING...</span> : "FILE FLIGHT PLAN"}
       </button>
       <p style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)", textAlign: "center", marginTop: 8 }}>Saves trip and opens detail view</p>
       {fileError && <p style={{ fontFamily: FONT, fontSize: "9px", color: "#e84233", textAlign: "center", marginTop: 8 }}>{fileError}</p>}
@@ -2574,7 +2661,7 @@ function SharedPage({ tripId }) {
         {mapView === "satellite" ? (
           <SatelliteMap trip={trip} height={220} />
         ) : (
-          <TripMap trip={trip} activeLegIndex={activeLeg} mode={mode} />
+          <TripMap trip={trip} activeLegIndex={activeLeg} mode={mode} isSharedView />
         )}
       </div>
 
@@ -2608,7 +2695,7 @@ function SharedPage({ tripId }) {
           const stripColor = stripColors[leg.type] || "var(--strip-flight)";
           const cardBg = isHotel ? "var(--bg-card-hotel)" : "var(--bg-card)";
           const cardBorder = isHotel ? "var(--border-hotel)" : "var(--border-primary)";
-          const nights = leg.metadata?.nights || (leg.depart_time && leg.arrive_time && isHotel ? Math.max(1, Math.round((new Date(leg.arrive_time) - new Date(leg.depart_time)) / 86400000)) : 0);
+          const nights = isHotel ? calcNights(leg) : 0;
           const city = leg.origin?.city || "Unknown";
 
           return (
@@ -2738,8 +2825,15 @@ function TripTrackApp() {
   const { user, loading: authLoading, signOut } = useAuth();
   const [route, setRoute] = useState({ page: "dashboard", params: {} });
   const [loaded, setLoaded] = useState(false);
+  const [offline, setOffline] = useState(!navigator.onLine);
 
   useEffect(() => { setTimeout(() => setLoaded(true), 50); }, []);
+  useEffect(() => {
+    const on = () => setOffline(false);
+    const off = () => setOffline(true);
+    window.addEventListener("online", on); window.addEventListener("offline", off);
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
+  }, []);
   const navigate = (page, params = {}) => { setRoute({ page, params }); setLoaded(false); setTimeout(() => setLoaded(true), 50); };
 
   if (authLoading) return <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg-primary)" }}><Spinner /></div>;
@@ -2750,7 +2844,12 @@ function TripTrackApp() {
     <RouterContext.Provider value={{ route, navigate }}>
       <div className="min-h-screen" style={{ background: "var(--bg-primary)", fontFamily: FONT }}>
         <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-        <div className="sticky top-0 z-40 flex items-center justify-between px-4 sm:px-6 h-[48px] sm:h-[53px]" style={{ borderBottom: "1px solid var(--nav-border)", background: "var(--nav-bg)", backdropFilter: "blur(12px)" }}>
+        {offline && (
+          <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 50, padding: "8px 16px", textAlign: "center", background: "rgba(var(--accent-countdown-rgb, 200,160,60), 0.15)", borderBottom: "1px solid rgba(200,160,60,0.3)", transition: "opacity 0.5s ease" }}>
+            <span style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--accent-countdown)" }}>NO SIGNAL {"\u2014"} CHECK CONNECTION</span>
+          </div>
+        )}
+        <div className="sticky top-0 z-40 flex items-center justify-between px-4 sm:px-6 h-[48px] sm:h-[53px]" style={{ borderBottom: "1px solid var(--nav-border)", background: "var(--nav-bg)", backdropFilter: "blur(12px)", marginTop: offline ? 34 : 0 }}>
           <button onClick={() => navigate("dashboard")} style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "3px", color: "var(--text-tertiary)", fontWeight: 700 }}>TRIPTRACK</button>
           <div className="flex items-center gap-1.5">
             {route.page === "dashboard" && (
