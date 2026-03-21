@@ -1,6 +1,19 @@
 require('dotenv').config();
 
+// Validate required environment variables before starting
+const REQUIRED_ENV = [
+  'SUPABASE_URL',
+  'SUPABASE_ANON_KEY',
+  'SUPABASE_SERVICE_ROLE_KEY',
+];
+const missing = REQUIRED_ENV.filter(k => !process.env[k]);
+if (missing.length > 0) {
+  console.error(`Missing required environment variables: ${missing.join(', ')}`);
+  process.exit(1);
+}
+
 const express = require('express');
+const helmet = require('helmet');
 const corsConfig = require('./src/config/cors');
 const errorHandler = require('./src/middleware/errorHandler');
 
@@ -16,8 +29,9 @@ const placesRoutes = require('./src/routes/places.routes');
 const app = express();
 
 // Middleware
+app.use(helmet());
 app.use(corsConfig);
-app.use(express.json());
+app.use(express.json({ limit: '50kb' }));
 
 // Health check
 app.get('/api/health', (req, res) => {

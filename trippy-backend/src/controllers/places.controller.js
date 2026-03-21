@@ -70,6 +70,9 @@ async function details(req, res) {
   }
 }
 
+const VALID_MAPTYPES = new Set(['roadmap', 'satellite', 'terrain', 'hybrid']);
+const MAP_SIZE_RE = /^\d{2,4}x\d{2,4}$/;
+
 // Static map image proxy — keeps API key server-side
 async function staticmap(req, res) {
   const key = process.env.GOOGLE_PLACES_API_KEY;
@@ -77,9 +80,25 @@ async function staticmap(req, res) {
 
   const { lat, lng, zoom = 15, size = '400x200', maptype = 'roadmap', markers, path } = req.query;
 
+  // Validate inputs
+  const zoomNum = parseInt(zoom, 10);
+  if (isNaN(zoomNum) || zoomNum < 0 || zoomNum > 21) {
+    return res.status(400).json({ error: 'zoom must be an integer between 0 and 21' });
+  }
+  if (!MAP_SIZE_RE.test(size)) {
+    return res.status(400).json({ error: 'size must be in WxH format (e.g. 400x200), max 4 digits each' });
+  }
+  const [w, h] = size.split('x').map(Number);
+  if (w > 640 || h > 640) {
+    return res.status(400).json({ error: 'size dimensions cannot exceed 640x640' });
+  }
+  if (!VALID_MAPTYPES.has(maptype)) {
+    return res.status(400).json({ error: `maptype must be one of: ${[...VALID_MAPTYPES].join(', ')}` });
+  }
+
   const url = new URL('https://maps.googleapis.com/maps/api/staticmap');
   if (lat && lng) url.searchParams.set('center', `${lat},${lng}`);
-  url.searchParams.set('zoom', zoom);
+  url.searchParams.set('zoom', zoomNum);
   url.searchParams.set('size', size);
   url.searchParams.set('maptype', maptype);
   url.searchParams.set('scale', '2'); // retina
@@ -131,8 +150,21 @@ async function tripmap(req, res) {
   // waypoints format: "lat1,lng1|lat2,lng2|lat3,lng3"
   if (!waypoints) return res.status(400).json({ error: 'waypoints param required (lat,lng|lat,lng|...)' });
 
+  // Validate inputs
+  if (!MAP_SIZE_RE.test(size)) {
+    return res.status(400).json({ error: 'size must be in WxH format (e.g. 600x300), max 4 digits each' });
+  }
+  const [w, h] = size.split('x').map(Number);
+  if (w > 640 || h > 640) {
+    return res.status(400).json({ error: 'size dimensions cannot exceed 640x640' });
+  }
+  if (!VALID_MAPTYPES.has(maptype)) {
+    return res.status(400).json({ error: `maptype must be one of: ${[...VALID_MAPTYPES].join(', ')}` });
+  }
+
   const points = waypoints.split('|').filter(p => p.includes(','));
   if (points.length < 1) return res.status(400).json({ error: 'Need at least 1 waypoint' });
+  if (points.length > 50) return res.status(400).json({ error: 'Maximum 50 waypoints allowed' });
 
   const url = new URL('https://maps.googleapis.com/maps/api/staticmap');
   url.searchParams.set('size', size);

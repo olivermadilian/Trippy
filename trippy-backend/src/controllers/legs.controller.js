@@ -152,6 +152,9 @@ async function reorderLegs(req, res) {
   if (!Array.isArray(leg_ids)) {
     return res.status(400).json({ error: 'leg_ids must be an array of leg IDs in desired order' });
   }
+  if (leg_ids.length > 200) {
+    return res.status(400).json({ error: 'leg_ids cannot contain more than 200 items' });
+  }
 
   // Update each leg's sort_order
   const updates = leg_ids.map((id, i) =>
