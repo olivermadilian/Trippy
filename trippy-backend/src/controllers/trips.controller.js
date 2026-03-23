@@ -1,5 +1,29 @@
 const { createUserClient } = require('../config/supabase');
 
+async function generateSquawkCode(supabase) {
+  const today = new Date().toISOString().slice(0, 10);
+
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const code = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+
+    // Check if any active trip already uses this code
+    const { data: existing, error } = await supabase
+      .from('trips')
+      .select('id')
+      .eq('squawk_code', code)
+      .or(`end_date.is.null,end_date.gte.${today}`)
+      .limit(1);
+
+    if (error) throw error;
+
+    if (!existing || existing.length === 0) {
+      return code;
+    }
+  }
+
+  throw new Error('Failed to generate unique squawk code after 20 attempts.');
+}
+
 async function listTrips(req, res) {
   const supabase = createUserClient(req.accessToken);
   const { data, error } = await supabase
@@ -25,6 +49,14 @@ async function createTrip(req, res) {
 
   if (!title) return res.status(400).json({ error: 'Title is required' });
 
+  // Generate a unique 4-digit squawk code
+  let squawkCode;
+  try {
+    squawkCode = await generateSquawkCode(supabase);
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to generate squawk code: ' + err.message });
+  }
+
   // Insert trip
   const { data: trip, error: tripError } = await supabase
     .from('trips')
@@ -34,7 +66,8 @@ async function createTrip(req, res) {
       description: description || null,
       start_date: start_date || null,
       end_date: end_date || null,
-      is_public: is_public || false
+      is_public: is_public || false,
+      squawk_code: squawkCode
     })
     .select()
     .single();

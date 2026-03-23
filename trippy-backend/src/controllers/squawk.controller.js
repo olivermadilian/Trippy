@@ -1,21 +1,5 @@
 const { createUserClient } = require('../config/supabase');
-const { generateSquawkCode, claimSquawkCode } = require('../services/squawk.service');
-
-async function generate(req, res) {
-  const supabase = createUserClient(req.accessToken);
-  const { trip_id } = req.body;
-
-  if (!trip_id) {
-    return res.status(400).json({ error: 'trip_id is required' });
-  }
-
-  try {
-    const squawk = await generateSquawkCode(supabase, trip_id, req.user.id);
-    res.status(201).json(squawk);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-}
+const { claimSquawkCode } = require('../services/squawk.service');
 
 async function claim(req, res) {
   const supabase = createUserClient(req.accessToken);
@@ -37,40 +21,49 @@ async function listForTrip(req, res) {
   const supabase = createUserClient(req.accessToken);
   const { tripId } = req.params;
 
-  const { data, error } = await supabase
-    .from('squawk_codes')
-    .select('*, claimed_by_profile:claimed_by(display_name)')
+  // Get the trip's squawk code
+  const { data: trip, error: tripError } = await supabase
+    .from('trips')
+    .select('squawk_code')
+    .eq('id', tripId)
+    .single();
+
+  if (tripError) return res.status(500).json({ error: tripError.message });
+
+  // Get followers for this trip
+  const { data: followers, error: followError } = await supabase
+    .from('trip_followers')
+    .select('id, follower_id, created_at, profiles:follower_id(display_name)')
     .eq('trip_id', tripId)
     .order('created_at', { ascending: false });
 
-  if (error) return res.status(500).json({ error: error.message });
+  if (followError) return res.status(500).json({ error: followError.message });
 
-  // Format response
-  const codes = (data || []).map(s => ({
-    id: s.id,
-    code: s.code,
-    created_at: s.created_at,
-    expires_at: s.expires_at,
-    claimed_by: s.claimed_by_profile?.display_name || null,
-    claimed_at: s.claimed_at,
-    is_active: !s.claimed_by && new Date(s.expires_at) > new Date()
+  const formattedFollowers = (followers || []).map(f => ({
+    id: f.id,
+    follower_id: f.follower_id,
+    display_name: f.profiles?.display_name || null,
+    created_at: f.created_at,
   }));
 
-  res.json(codes);
+  res.json({
+    squawk_code: trip?.squawk_code || null,
+    followers: formattedFollowers,
+  });
 }
 
 async function revoke(req, res) {
   const supabase = createUserClient(req.accessToken);
   const { codeId } = req.params;
 
+  // codeId here is the trip_followers record id — remove the follower
   const { error } = await supabase
-    .from('squawk_codes')
+    .from('trip_followers')
     .delete()
-    .eq('id', codeId)
-    .eq('created_by', req.user.id);
+    .eq('id', codeId);
 
   if (error) return res.status(500).json({ error: error.message });
   res.status(204).send();
 }
 
-module.exports = { generate, claim, listForTrip, revoke };
+module.exports = { claim, listForTrip, revoke };

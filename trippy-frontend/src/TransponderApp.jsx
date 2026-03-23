@@ -724,35 +724,26 @@ function LandingPage({ onSignIn }) {
 function SquawkModal({ trip, onClose }) {
   const { mode } = useTheme();
   const isDesktop = useIsDesktop();
-  const [squawk, setSquawk] = useState(null);
   const [copied, setCopied] = useState(null);
-  const [generating, setGenerating] = useState(false);
   const [viewers, setViewers] = useState([]);
   const [error, setError] = useState(null);
   const [revokeConfirm, setRevokeConfirm] = useState(null);
 
+  const squawk = trip.squawk_code;
+
   useEffect(() => {
-    api(`/squawk/trip/${trip.id}`).then(codes => {
-      const claimed = (codes || []).filter(c => c.claimed_by);
-      setViewers(claimed);
-      // If there's an active unexpired code, display it
-      const active = (codes || []).find(c => !c.claimed_by && new Date(c.expires_at) > new Date());
-      if (active) setSquawk(active.code);
+    api(`/squawk/trip/${trip.id}`).then(data => {
+      const followers = data?.followers || [];
+      setViewers(followers);
     }).catch(() => {});
   }, [trip.id]);
-
-  const generate = async () => {
-    setGenerating(true); setCopied(null); setError(null);
-    try { const res = await api("/squawk/generate", { method: "POST", body: JSON.stringify({ trip_id: trip.id }) }); setSquawk(res.code); } catch (e) { setError(e.message); }
-    setGenerating(false);
-  };
 
   const revoke = async (codeId) => {
     try { await api(`/squawk/${codeId}`, { method: "DELETE" }); setViewers(v => v.filter(c => c.id !== codeId)); setRevokeConfirm(null); } catch (e) { setError(e.message); }
   };
 
   const copy = (type) => {
-    const text = type === "code" ? squawk : `Follow my trip "${trip.title}" on Transponder.\nSquawk code: ${squawk}`;
+    const text = type === "code" ? squawk : `Track my trip on Transponder! Enter code ${squawk} at transponderapp.com`;
     navigator.clipboard?.writeText(text).catch(() => {});
     setCopied(type); setTimeout(() => setCopied(null), 2000);
   };
@@ -783,36 +774,30 @@ function SquawkModal({ trip, onClose }) {
           </div>
 
           {/* Description */}
-          <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", lineHeight: 1.5, marginBottom: 16 }}>Generate a one-time squawk code. Send it to someone — they enter it, your trip appears in their feed. Expires in 24 hours.</p>
+          <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", lineHeight: 1.5, marginBottom: 16 }}>Share your squawk code with someone — they enter it, your trip appears in their feed.</p>
 
           {error && <div style={{ marginBottom: 12, padding: "8px 12px", borderRadius: 6, background: "var(--danger-bg)", color: "var(--danger-text)", fontFamily: FONT, fontSize: "9px" }}>{error}</div>}
 
           {/* Squawk code section */}
           <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-tertiary)", textAlign: "center", marginBottom: 10 }}>SQUAWK CODE</p>
 
-          {generating ? (
-            <div style={{ display: "flex", justifyContent: "center", padding: "20px 0" }}><Spinner /></div>
-          ) : !squawk ? (
-            <button onClick={generate} style={{ width: "100%", height: 52, borderRadius: 10, background: "var(--squawk-bg)", color: "var(--squawk-text)", fontFamily: FONT, fontSize: "11px", letterSpacing: "3px", fontWeight: 500, border: "none", cursor: "pointer", marginBottom: 10 }}>GENERATE SQUAWK CODE</button>
-          ) : (
+          {squawk ? (
             <>
-              {/* Six character cells */}
-              <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 8 }}>
+              {/* Four digit cells */}
+              <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 16 }}>
                 {squawk.split("").map((ch, i) => (
-                  <div key={i} style={{ width: 44, height: 52, border: "1.5px solid var(--accent-flight)", borderRadius: 6, background: "var(--bg-card)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT, fontSize: "22px", fontWeight: 700, color: "var(--accent-flight-bright)" }}>{ch}</div>
+                  <div key={i} style={{ width: 52, height: 52, border: "1.5px solid var(--accent-flight)", borderRadius: 6, background: "var(--bg-card)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT, fontSize: "22px", fontWeight: 700, color: "var(--accent-flight-bright)" }}>{ch}</div>
                 ))}
               </div>
-              <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--text-tertiary)", textAlign: "center", marginBottom: 16 }}>24H EXPIRY {"\u00B7"} SINGLE USE</p>
 
               {/* Action buttons */}
               <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
                 <button onClick={() => copy("code")} style={{ flex: 1, height: 44, border: "1px solid var(--border-primary)", borderRadius: 8, background: "var(--nav-bg)", color: "var(--accent-flight-bright)", fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", cursor: "pointer" }}>{copied === "code" ? "COPIED" : "COPY CODE"}</button>
                 <button onClick={() => copy("msg")} style={{ flex: 1, height: 44, border: "1px solid var(--accent-flight)", borderRadius: 8, background: "var(--squawk-bg)", color: "var(--squawk-text)", fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", cursor: "pointer" }}>{copied === "msg" ? "COPIED" : "COPY MESSAGE"}</button>
               </div>
-
-              {/* Regenerate */}
-              <button onClick={generate} style={{ width: "100%", height: 36, background: "transparent", border: "none", color: "var(--text-tertiary)", fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", cursor: "pointer", textAlign: "center" }}>REGENERATE</button>
             </>
+          ) : (
+            <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)", textAlign: "center", marginBottom: 16 }}>No squawk code assigned</p>
           )}
 
           {/* Divider + viewer list */}
@@ -849,16 +834,16 @@ function SquawkModal({ trip, onClose }) {
 // ═══════════════════════════════════════════════════════════════════
 
 function SquawkEntry({ onClaim }) {
-  const [code, setCode] = useState(["", "", "", "", "", ""]);
+  const [code, setCode] = useState(["", "", "", ""]);
   const [status, setStatus] = useState(null); // null | "checking" | "success" | "error"
   const [error, setError] = useState(null);
   const [claimedTrip, setClaimedTrip] = useState(null);
   const refs = useRef([]);
 
   const handleChange = (i, val) => {
-    const ch = val.toUpperCase().replace(/[^A-Z2-9]/g, "").slice(-1);
-    const n = [...code]; n[i] = ch; setCode(n); setStatus(null); setError(null);
-    if (ch && i < 5) refs.current[i + 1]?.focus();
+    const v = val.replace(/[^0-9]/g, "").slice(-1);
+    const n = [...code]; n[i] = v; setCode(n); setStatus(null); setError(null);
+    if (v && i < 3) refs.current[i + 1]?.focus();
   };
   const handleKey = (i, e) => {
     if (e.key === "Backspace" && !code[i] && i > 0) { refs.current[i - 1]?.focus(); const n = [...code]; n[i - 1] = ""; setCode(n); }
@@ -866,9 +851,9 @@ function SquawkEntry({ onClaim }) {
   };
   const handlePaste = (e) => {
     e.preventDefault();
-    const p = e.clipboardData.getData("text").toUpperCase().replace(/[^A-Z2-9]/g, "").slice(0, 6);
-    const n = [...code]; for (let i = 0; i < 6; i++) n[i] = p[i] || ""; setCode(n);
-    if (p.length === 6) refs.current[5]?.focus();
+    const p = e.clipboardData.getData("text").replace(/[^0-9]/g, "").slice(0, 4);
+    const n = [...code]; for (let i = 0; i < 4; i++) n[i] = p[i] || ""; setCode(n);
+    if (p.length === 4) refs.current[3]?.focus();
   };
 
   const submit = async () => {
@@ -878,10 +863,10 @@ function SquawkEntry({ onClaim }) {
       const res = await api("/squawk/claim", { method: "POST", body: JSON.stringify({ code: code.join("") }) });
       setClaimedTrip(res?.trip_title || "Trip");
       setStatus("success");
-      setTimeout(() => { onClaim(); setCode(["", "", "", "", "", ""]); setStatus(null); setClaimedTrip(null); }, 3000);
+      setTimeout(() => { onClaim(); setCode(["", "", "", ""]); setStatus(null); setClaimedTrip(null); }, 3000);
     } catch (e) {
-      setStatus("error"); setError("Invalid or expired code \u2014 ask for a new one");
-      setTimeout(() => { setCode(["", "", "", "", "", ""]); setStatus(null); setError(null); refs.current[0]?.focus(); }, 2000);
+      setStatus("error"); setError("Invalid code \u2014 check and try again");
+      setTimeout(() => { setCode(["", "", "", ""]); setStatus(null); setError(null); refs.current[0]?.focus(); }, 2000);
     }
   };
 
@@ -903,24 +888,23 @@ function SquawkEntry({ onClaim }) {
   return (
     <div style={{ textAlign: "center", padding: "8px 0" }}>
       <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-secondary)", marginBottom: 4 }}>ENTER SQUAWK CODE</p>
-      <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)", lineHeight: 1.5, marginBottom: 16 }}>Enter a 6-character code to track someone's trip in your feed.</p>
+      <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)", lineHeight: 1.5, marginBottom: 16 }}>Enter a 4-digit code to track someone's trip in your feed.</p>
 
-      {/* Six input cells */}
+      {/* Four input cells */}
       <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 16 }}>
         {code.map((ch, i) => (
           <input
             key={i} ref={el => refs.current[i] = el}
-            type="text" inputMode="text" autoCapitalize="characters"
+            type="text" inputMode="numeric"
             value={ch} onChange={e => handleChange(i, e.target.value)}
             onKeyDown={e => handleKey(i, e)} onPaste={i === 0 ? handlePaste : undefined}
             maxLength={1}
             style={{
-              width: 44, height: 52, textAlign: "center", fontFamily: FONT, fontSize: "22px", fontWeight: 700,
+              width: 52, height: 52, textAlign: "center", fontFamily: FONT, fontSize: "22px", fontWeight: 700,
               border: `1.5px solid ${status === "error" ? "var(--danger-text)" : ch ? "var(--accent-flight)" : "var(--border-primary)"}`,
               borderRadius: 6, background: "var(--bg-card)",
               color: ch ? "var(--accent-flight-bright)" : "var(--text-tertiary)",
               outline: "none", caretColor: "var(--accent-flight)",
-              textTransform: "uppercase",
             }}
           />
         ))}
@@ -1193,7 +1177,7 @@ function FollowingTab({ following, setFollowing, fetchData, navigate, mode }) {
   const tracked = [...dwellingFol, ...upcomingFol, ...completeFol];
 
   const handleCompactClaim = async () => {
-    if (compactCode.length < 6) return;
+    if (compactCode.length < 4) return;
     setClaimStatus("checking"); setClaimError(null);
     try {
       const res = await api("/squawk/claim", { method: "POST", body: JSON.stringify({ code: compactCode }) });
@@ -1213,7 +1197,7 @@ function FollowingTab({ following, setFollowing, fetchData, navigate, mode }) {
         setClaimedTrip("Trip"); setClaimStatus("already");
         setTimeout(() => { setCompactCode(""); setClaimStatus(null); setClaimedTrip(null); }, 3000);
       } else {
-        setClaimStatus("error"); setClaimError("Invalid or expired code");
+        setClaimStatus("error"); setClaimError("Invalid code");
         setTimeout(() => { setCompactCode(""); setClaimStatus(null); setClaimError(null); }, 2000);
       }
     }
@@ -1366,16 +1350,16 @@ function FollowingTab({ following, setFollowing, fetchData, navigate, mode }) {
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <input
               type="text" value={compactCode}
-              onChange={e => { const v = e.target.value.toUpperCase().replace(/[^A-Z2-9]/g, "").slice(0, 6); setCompactCode(v); setClaimStatus(null); setClaimError(null); }}
-              onKeyDown={e => { if (e.key === "Enter" && compactCode.length === 6) handleCompactClaim(); }}
-              placeholder="Enter squawk code..."
-              maxLength={6}
-              style={{ flex: 1, border: `1px solid ${claimStatus === "error" ? "#e84233" : "var(--border-primary)"}`, borderRadius: 6, padding: "10px 12px", background: "var(--bg-card)", fontFamily: FONT, fontSize: "11px", color: "var(--text-primary)", textTransform: "uppercase", letterSpacing: "1px", outline: "none" }}
+              onChange={e => { const v = e.target.value.replace(/[^0-9]/g, "").slice(0, 4); setCompactCode(v); setClaimStatus(null); setClaimError(null); }}
+              onKeyDown={e => { if (e.key === "Enter" && compactCode.length === 4) handleCompactClaim(); }}
+              placeholder="Enter 4-digit code..."
+              maxLength={4}
+              style={{ flex: 1, border: `1px solid ${claimStatus === "error" ? "#e84233" : "var(--border-primary)"}`, borderRadius: 6, padding: "10px 12px", background: "var(--bg-card)", fontFamily: FONT, fontSize: "11px", color: "var(--text-primary)", letterSpacing: "1px", outline: "none" }}
             />
             <button
               onClick={handleCompactClaim}
-              disabled={compactCode.length < 6 || claimStatus === "checking"}
-              style={{ height: 40, padding: "0 14px", borderRadius: 6, border: "none", fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", fontWeight: 500, cursor: compactCode.length === 6 ? "pointer" : "default", background: compactCode.length === 6 ? "var(--squawk-bg)" : "var(--bg-surface)", color: compactCode.length === 6 ? "var(--squawk-text)" : "var(--text-tertiary)", whiteSpace: "nowrap" }}
+              disabled={compactCode.length < 4 || claimStatus === "checking"}
+              style={{ height: 40, padding: "0 14px", borderRadius: 6, border: "none", fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", fontWeight: 500, cursor: compactCode.length === 4 ? "pointer" : "default", background: compactCode.length === 4 ? "var(--squawk-bg)" : "var(--bg-surface)", color: compactCode.length === 4 ? "var(--squawk-text)" : "var(--text-tertiary)", whiteSpace: "nowrap" }}
             >{claimStatus === "checking" ? <Spinner /> : "CLAIM"}</button>
           </div>
         )}
