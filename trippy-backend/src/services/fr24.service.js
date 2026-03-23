@@ -2,6 +2,12 @@ const axios = require('axios');
 
 const FR24_BASE = 'https://fr24api.flightradar24.com/api';
 
+/** Ensure a datetime string ends with exactly one 'Z' */
+function ensureZ(s) {
+  if (!s) return null;
+  return s.endsWith('Z') ? s : s + 'Z';
+}
+
 function getHeaders() {
   return {
     'Authorization': `Bearer ${process.env.FR24_API_KEY}`,
@@ -62,7 +68,7 @@ async function lookupFlight(callsign, date) {
         code: f.orig_iata || null,
         icao: f.origin_icao || null,
         airport: null,
-        scheduled: f.datetime_takeoff ? f.datetime_takeoff + 'Z' : null,
+        scheduled: f.datetime_takeoff ? ensureZ(f.datetime_takeoff) : null,
         terminal: null,
         gate: null,
       },
@@ -70,7 +76,7 @@ async function lookupFlight(callsign, date) {
         code: f.dest_iata || null,
         icao: f.destination_icao || null,
         airport: null,
-        scheduled: f.datetime_landed ? f.datetime_landed + 'Z' : null,
+        scheduled: f.datetime_landed ? ensureZ(f.datetime_landed) : null,
         terminal: null,
         gate: null,
       },
