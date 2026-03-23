@@ -598,4 +598,4 @@ async function getFlightPosition(callsign) {
   return result;
 }
 
-module.exports = { lookupFlight, getFlightPosition };
+module.exports = { lookupFlight, getFlightPosition, getAirport };

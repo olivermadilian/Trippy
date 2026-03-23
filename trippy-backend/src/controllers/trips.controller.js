@@ -125,6 +125,32 @@ async function getTrip(req, res) {
   if (error || !data) return res.status(404).json({ error: 'Trip not found' });
 
   data.legs = (data.legs || []).sort((a, b) => a.sort_order - b.sort_order);
+
+  // Backfill missing coordinates from FR24 airports API
+  try {
+    const { getAirport } = require('../services/fr24.service');
+    for (const leg of data.legs) {
+      let updated = false;
+      if (leg.origin_code && (!leg.origin_lat || leg.origin_lat === 0)) {
+        const apt = await getAirport(leg.origin_code);
+        if (apt.lat) { leg.origin_lat = apt.lat; leg.origin_lng = apt.lng; leg.origin_city = apt.city || leg.origin_city; updated = true; }
+      }
+      if (leg.destination_code && (!leg.destination_lat || leg.destination_lat === 0)) {
+        const apt = await getAirport(leg.destination_code);
+        if (apt.lat) { leg.destination_lat = apt.lat; leg.destination_lng = apt.lng; leg.destination_city = apt.city || leg.destination_city; updated = true; }
+      }
+      // Persist fixes to DB (fire and forget)
+      if (updated) {
+        supabase.from('legs').update({
+          origin_lat: leg.origin_lat, origin_lng: leg.origin_lng, origin_city: leg.origin_city,
+          destination_lat: leg.destination_lat, destination_lng: leg.destination_lng, destination_city: leg.destination_city,
+        }).eq('id', leg.id).then(() => {});
+      }
+    }
+  } catch (e) {
+    // Non-critical — continue serving the trip even if backfill fails
+  }
+
   res.json(data);
 }
 
