@@ -166,6 +166,8 @@ const NIGHT_TOKENS = {
   "--timeline-dot-bg": "#000000",
   "--strip-flight": "#22c55e",
   "--strip-hotel": "#c9993a",
+  "--strip-train": "#d4628a",
+  "--strip-bus": "#7c6bb4",
   "--danger-text": "#e84233",
   "--danger-border": "rgba(232, 66, 51, 0.4)",
   "--danger-bg": "rgba(232, 66, 51, 0.08)",
@@ -212,6 +214,8 @@ const DAY_TOKENS = {
   "--timeline-dot-bg": "#f0f4f2",
   "--strip-flight": "#1a5c3a",
   "--strip-hotel": "#c9993a",
+  "--strip-train": "#b04870",
+  "--strip-bus": "#5c4a9a",
   "--danger-text": "#e84233",
   "--danger-border": "rgba(232, 66, 51, 0.4)",
   "--danger-bg": "rgba(232, 66, 51, 0.08)",
@@ -449,8 +453,6 @@ function LandingPage({ onSignIn }) {
 
   return (
     <div style={{ background: '#000', minHeight: '100vh', fontFamily: FONT, color: '#e8e4de', overflow: 'hidden', position: 'relative' }}>
-      <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-
       {/* ── Infrastructure Strip ── */}
       <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', zIndex: 0, overflow: 'hidden' }}>
         <div style={{ position: 'absolute', width: 340, height: '300%', top: '-60%', left: isMobile ? '78%' : '55%', transform: 'translateX(-50%) rotate(-25deg)', display: 'flex', flexDirection: 'row' }}>
@@ -677,9 +679,9 @@ function LandingPage({ onSignIn }) {
                     <circle cx="20" cy="35" r="3" fill="#4aff4a"/>
                     <circle cx="180" cy="25" r="3" fill="#4aff4a"/>
                     <circle cx="120" cy="50" r="3" fill="#c9993a" opacity="0.6"/>
-                    <text x="20" y="30" fill="#4aff4a" fontSize="5" fontFamily="'IBM Plex Mono',monospace">LAX</text>
-                    <text x="175" y="20" fill="#4aff4a" fontSize="5" fontFamily="'IBM Plex Mono',monospace" textAnchor="end">CDG</text>
-                    <text x="120" y="45" fill="#c9993a" fontSize="5" fontFamily="'IBM Plex Mono',monospace">BCN</text>
+                    <text x="20" y="30" fill="#4aff4a" fontSize="5" fontFamily="'B612 Mono','B612',monospace">LAX</text>
+                    <text x="175" y="20" fill="#4aff4a" fontSize="5" fontFamily="'B612 Mono','B612',monospace" textAnchor="end">CDG</text>
+                    <text x="120" y="45" fill="#c9993a" fontSize="5" fontFamily="'B612 Mono','B612',monospace">BCN</text>
                   </svg>
                 </div>
                 {/* Mini leg cards */}
@@ -1115,8 +1117,8 @@ function DashLegIndicators({ legs, showTotal = true }) {
   const items = [];
   if (counts.flight) items.push({ color: "var(--accent-flight)", label: `${counts.flight} FLIGHT${counts.flight !== 1 ? "S" : ""}` });
   if (counts.hotel) items.push({ color: "var(--accent-hotel)", label: `${counts.hotel} HOTEL${counts.hotel !== 1 ? "S" : ""}` });
-  if (counts.train) items.push({ color: "#d4628a", label: `${counts.train} TRAIN${counts.train !== 1 ? "S" : ""}` });
-  if (counts.bus) items.push({ color: "#7c6bb4", label: `${counts.bus} BUS${counts.bus !== 1 ? "ES" : ""}` });
+  if (counts.train) items.push({ color: "var(--strip-train)", label: `${counts.train} TRAIN${counts.train !== 1 ? "S" : ""}` });
+  if (counts.bus) items.push({ color: "var(--strip-bus)", label: `${counts.bus} BUS${counts.bus !== 1 ? "ES" : ""}` });
   return (
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-3">
@@ -1307,8 +1309,8 @@ function FollowingTab({ following, setFollowing, fetchData, navigate, mode }) {
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {flightCount > 0 && <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: "var(--strip-flight)" }} /><span style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)" }}>{flightCount} FLIGHT{flightCount !== 1 ? "S" : ""}</span></span>}
             {hotelCount > 0 && <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: "var(--strip-hotel)" }} /><span style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)" }}>{hotelCount} HOTEL{hotelCount !== 1 ? "S" : ""}</span></span>}
-            {trainCount > 0 && <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: "#d4628a" }} /><span style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)" }}>{trainCount} TRAIN{trainCount !== 1 ? "S" : ""}</span></span>}
-            {busCount > 0 && <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: "#7c6bb4" }} /><span style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)" }}>{busCount} BUS{busCount !== 1 ? "ES" : ""}</span></span>}
+            {trainCount > 0 && <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: "var(--strip-train)" }} /><span style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)" }}>{trainCount} TRAIN{trainCount !== 1 ? "S" : ""}</span></span>}
+            {busCount > 0 && <span style={{ display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: "var(--strip-bus)" }} /><span style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)" }}>{busCount} BUS{busCount !== 1 ? "ES" : ""}</span></span>}
           </div>
           <div style={{ minWidth: 44, minHeight: 44, display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
             {isConfirming ? (
@@ -1894,7 +1896,7 @@ function formatCoord(lat, lng) {
   return `${Math.abs(lat).toFixed(2)}\u00B0${latDir} ${Math.abs(lng).toFixed(2)}\u00B0${lngDir}`;
 }
 
-const STRIP_COLORS = { flight: "var(--strip-flight)", hotel: "var(--strip-hotel)", train: "#d4628a", bus: "#7c6bb4" };
+const STRIP_COLORS = { flight: "var(--strip-flight)", hotel: "var(--strip-hotel)", train: "var(--strip-train)", bus: "var(--strip-bus)" };
 
 // ═══════════════════════════════════════════════════════════════════
 // ROUTE SUMMARY BAR
@@ -2276,7 +2278,7 @@ function DetailPage({ tripId }) {
     }
     setBFN(""); setBLoading(false); setBAF(null); setBErr(null); setBFlightOptions(null); setBHN(""); setBHC(""); setBHI(defDate || sd); setBHO(ed); setBHPlace(null); setBO(""); setBD(""); setBDt(defDate || sd); setBTm(""); setBOPlace(null); setBDPlace(null);
   };
-  const typeCfg = { flight: { label: "FLIGHT", color: "var(--strip-flight)" }, hotel: { label: "GROUND STOP", color: "var(--strip-hotel)" }, train: { label: "TRAIN", color: "#d4628a" }, bus: { label: "BUS", color: "#7c6bb4" } };
+  const typeCfg = { flight: { label: "FLIGHT", color: "var(--strip-flight)" }, hotel: { label: "GROUND STOP", color: "var(--strip-hotel)" }, train: { label: "TRAIN", color: "var(--strip-train)" }, bus: { label: "BUS", color: "var(--strip-bus)" } };
 
   const fetchTrip = async () => { setLoading(true); try { const t = await api(`/trips/${tripId}`); setTrip(mapTrip(t)); } catch (e) { setTrip(null); } setLoading(false); };
   useEffect(() => { fetchTrip(); }, [tripId]);
@@ -2744,8 +2746,8 @@ function CreatePage() {
   const segTypes = [
     { key: "flight", label: "FLIGHT", activeBg: "var(--accent-flight)", activeColor: "var(--squawk-text)" },
     { key: "hotel", label: "GROUND STOP", activeBg: "var(--accent-hotel)", activeColor: "#fff" },
-    { key: "train", label: "TRAIN", activeBg: "#d4628a", activeColor: "#fff" },
-    { key: "bus", label: "BUS", activeBg: "#7c6bb4", activeColor: "#fff" },
+    { key: "train", label: "TRAIN", activeBg: "var(--strip-train)", activeColor: "#fff" },
+    { key: "bus", label: "BUS", activeBg: "var(--strip-bus)", activeColor: "#fff" },
   ];
 
   // Mini card helpers
@@ -2858,8 +2860,8 @@ function CreatePage() {
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
             {legs.map((leg, i) => {
               const isHotel = leg.type === "hotel";
-              const stripColors = { flight: "var(--strip-flight)", hotel: "var(--strip-hotel)", train: "#d4628a", bus: "#7c6bb4" };
-              const accentColors = { flight: "var(--accent-flight)", hotel: "var(--accent-hotel)", train: "#d4628a", bus: "#7c6bb4" };
+              const stripColors = { flight: "var(--strip-flight)", hotel: "var(--strip-hotel)", train: "var(--strip-train)", bus: "var(--strip-bus)" };
+              const accentColors = { flight: "var(--accent-flight)", hotel: "var(--accent-hotel)", train: "var(--strip-train)", bus: "var(--strip-bus)" };
               return (
                 <div key={leg._tempId || i} style={{ display: "flex", gap: 4 }}>
                   <div style={{
@@ -3226,7 +3228,7 @@ function SharedPage({ tripId }) {
       {trip.legs?.map((leg, i) => {
         const isHotel = leg.type === "hotel";
         const isLive = leg.status === "in_air" || leg.status === "in_transit";
-        const stripColors = { flight: "var(--strip-flight)", hotel: "var(--strip-hotel)", train: "#d4628a", bus: "#7c6bb4" };
+        const stripColors = { flight: "var(--strip-flight)", hotel: "var(--strip-hotel)", train: "var(--strip-train)", bus: "var(--strip-bus)" };
         const stripColor = stripColors[leg.type] || "var(--strip-flight)";
         const cardBg = isHotel ? "var(--bg-card-hotel)" : "var(--bg-card)";
         const cardBorder = isHotel ? "var(--border-hotel)" : "var(--border-primary)";
@@ -3346,9 +3348,46 @@ function SharedPage({ tripId }) {
 // NAV RIGHT (avatar + theme toggle)
 // ═══════════════════════════════════════════════════════════════════
 
+function ThemeToggle() {
+  const { mode, pref, setPref } = useTheme();
+  const options = [
+    { key: "day", icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+      </svg>
+    )},
+    { key: "auto", icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10"/><path d="M12 2a7 7 0 0 0 0 20 10 10 0 0 1 0-20"/>
+      </svg>
+    )},
+    { key: "night", icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+    )},
+  ];
+  return (
+    <div style={{ display: "flex", borderRadius: 8, border: "1px solid var(--border-primary)", background: "var(--bg-surface)", overflow: "hidden" }}>
+      {options.map(opt => (
+        <button key={opt.key} onClick={() => setPref(opt.key)}
+          title={opt.key.charAt(0).toUpperCase() + opt.key.slice(1)}
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center",
+            width: 32, height: 32, border: "none", cursor: "pointer",
+            background: pref === opt.key ? "var(--accent-flight)" : "transparent",
+            color: pref === opt.key ? "var(--bg-primary)" : "var(--text-tertiary)",
+            transition: "all 0.2s ease",
+          }}>
+          {opt.icon}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function NavRight({ user, signOut }) {
   const [open, setOpen] = useState(false);
-  const { mode, pref, setPref } = useTheme();
   const ref = useRef(null);
 
   useEffect(() => {
@@ -3358,30 +3397,14 @@ function NavRight({ user, signOut }) {
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  const themeOptions = [
-    { key: "auto", label: "AUTO" },
-    { key: "day", label: "DAY" },
-    { key: "night", label: "NIGHT" },
-  ];
-
   return (
-    <div className="relative" ref={ref}>
+    <div className="relative" ref={ref} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <ThemeToggle />
       <button onClick={() => setOpen(o => !o)} className="flex items-center justify-center" style={{ width: 36, height: 36, borderRadius: "50%", border: "1px solid var(--nav-border)", background: "var(--nav-bg)", color: "var(--accent-flight-bright)", fontFamily: FONT, fontSize: "12px", fontWeight: 600 }} title="Settings">
         {(user.user_metadata?.name || user.email || "U").charAt(0).toUpperCase()}
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1.5 rounded-lg overflow-hidden z-50" style={{ background: "var(--bg-card)", border: "1px solid var(--border-primary)", minWidth: "160px" }}>
-          <div className="px-3 py-2.5" style={{ borderBottom: "1px solid var(--border-primary)" }}>
-            <p className="text-xs font-bold tracking-widest mb-2" style={{ color: "var(--text-tertiary)", fontFamily: FONT, fontSize: "8px", letterSpacing: "1.5px" }}>THEME</p>
-            <div className="flex gap-0">
-              {themeOptions.map(opt => (
-                <button key={opt.key} onClick={() => setPref(opt.key)} className="flex-1 relative py-1.5 text-xs font-bold tracking-widest" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: pref === opt.key ? "var(--text-heading)" : "var(--text-tertiary)", minHeight: "44px", minWidth: "44px" }}>
-                  {opt.label}
-                  {pref === opt.key && <div className="absolute bottom-0 left-1 right-1 h-px" style={{ background: "var(--accent-flight)" }} />}
-                </button>
-              ))}
-            </div>
-          </div>
+        <div className="absolute right-0 top-full mt-1.5 rounded-lg overflow-hidden z-50" style={{ background: "var(--bg-card)", border: "1px solid var(--border-primary)", minWidth: "140px" }}>
           <button onClick={() => { signOut(); setOpen(false); }} className="w-full text-left px-3 py-2.5 text-xs font-bold tracking-widest" style={{ color: "var(--text-secondary)", fontFamily: FONT, fontSize: "9px", letterSpacing: "1.5px", minHeight: "44px", display: "flex", alignItems: "center" }}>SIGN OUT</button>
         </div>
       )}
@@ -3415,7 +3438,6 @@ function TransponderApp() {
   return (
     <RouterContext.Provider value={{ route, navigate }}>
       <div className="min-h-screen" style={{ background: "var(--bg-primary)", fontFamily: FONT }}>
-        <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
         {offline && (
           <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 50, padding: "8px 16px", textAlign: "center", background: "rgba(var(--accent-countdown-rgb, 200,160,60), 0.15)", borderBottom: "1px solid rgba(200,160,60,0.3)", transition: "opacity 0.5s ease" }}>
             <span style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--accent-countdown)" }}>NO SIGNAL {"\u2014"} CHECK CONNECTION</span>
