@@ -1,4 +1,4 @@
-const { lookupFlight } = require('../services/aviationstack.service');
+const { lookupFlight } = require('../services/fr24.service');
 
 async function lookup(req, res) {
   const { callsign, date } = req.query;

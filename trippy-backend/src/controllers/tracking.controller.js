@@ -1,4 +1,4 @@
-const { getFlightPosition } = require('../services/opensky.service');
+const { getFlightPosition } = require('../services/fr24.service');
 
 async function trackFlight(req, res) {
   const { callsign } = req.params;

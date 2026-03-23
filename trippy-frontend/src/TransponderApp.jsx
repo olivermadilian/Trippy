@@ -367,12 +367,12 @@ function shouldProbeTracking(leg) {
 
 function getLivePos(leg, realPosition) {
   if (!isLegLive(leg, realPosition)) return null;
-  // If we have real ADS-B data from OpenSky, use it
+  // If we have real ADS-B data from FR24, use it
   if (realPosition) {
     const totalDist = d3.geoDistance([leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat]);
     const coveredDist = d3.geoDistance([leg.origin.lng, leg.origin.lat], [realPosition.lng, realPosition.lat]);
     const progress = totalDist > 0 ? Math.min(1, coveredDist / totalDist) : 0;
-    return { lng: realPosition.lng, lat: realPosition.lat, progress, altitude_ft: realPosition.altitude_ft, velocity_kts: realPosition.velocity_kts, heading: realPosition.heading, isReal: true };
+    return { lng: realPosition.lng, lat: realPosition.lat, progress, altitude_ft: realPosition.altitude_ft, velocity_kts: realPosition.velocity_kts, heading: realPosition.heading, eta: realPosition.eta, isReal: true };
   }
   // Fallback to estimated position based on departure/arrival times
   const dep = new Date(leg.actual_depart || leg.depart_time).getTime(), arr = new Date(leg.arrive_time).getTime();
