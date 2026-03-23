@@ -1,5 +1,4 @@
 const { createUserClient } = require('../config/supabase');
-const path = require('path');
 
 const VALID_TYPES = ['flight', 'hotel', 'train', 'bus'];
 const VALID_STATUSES = ['scheduled', 'confirmed', 'in_air', 'in_transit', 'completed', 'cancelled'];

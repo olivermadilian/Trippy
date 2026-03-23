@@ -13,7 +13,7 @@ const flightLimiter = rateLimit({
   message: { error: 'Too many flight lookups. Try again in a minute.' }
 });
 
-// Rate limit live tracking (OpenSky is ~10 req/min for anonymous)
+// Rate limit live tracking (FR24 API)
 const trackLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 12,

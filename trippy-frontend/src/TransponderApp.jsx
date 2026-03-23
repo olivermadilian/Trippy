@@ -240,11 +240,6 @@ function useTheme() { return useContext(ThemeContext); }
 function ThemeProvider({ children }) {
   const [pref, setPrefState] = useState(() => {
     try {
-      // Migrate old key
-      if (!localStorage.getItem("transponder-theme") && localStorage.getItem("triptrack-theme")) {
-        localStorage.setItem("transponder-theme", localStorage.getItem("triptrack-theme"));
-        localStorage.removeItem("triptrack-theme");
-      }
       return localStorage.getItem("transponder-theme") || "auto";
     } catch { return "auto"; }
   });
@@ -505,13 +500,7 @@ function LoadingScreen() { return <div className="flex items-center justify-cent
 // ═══════════════════════════════════════════════════════════════════
 
 function LandingPage({ onSignIn }) {
-  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
-
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth <= 768);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  const isMobile = !useIsDesktop();
 
   const runwayWidth = isMobile ? 140 : 170;
   const trackWidth = isMobile ? 110 : 130;
@@ -3309,7 +3298,7 @@ function SharedPage({ tripId }) {
       {mapView === "satellite" ? (
         <SatelliteMap trip={trip} height={isDesktop ? "100%" : 220} />
       ) : (
-        <TripMap trip={trip} activeLegIndex={activeLeg} mode={mode} isSharedView />
+        <TripMap trip={trip} activeLegIndex={activeLeg} mode={mode} isSharedView liveTrackData={null} mapTick={0} />
       )}
     </div>
   );

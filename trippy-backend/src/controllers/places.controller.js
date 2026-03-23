@@ -27,6 +27,7 @@ async function autocomplete(req, res) {
       }))
     });
   } catch (err) {
+    console.error('[places] API error:', err.message);
     res.status(502).json({ error: 'Failed to reach Google Places API' });
   }
 }
@@ -66,6 +67,7 @@ async function details(req, res) {
       types: r.types || [],
     });
   } catch (err) {
+    console.error('[places] API error:', err.message);
     res.status(502).json({ error: 'Failed to reach Google Places API' });
   }
 }
@@ -118,6 +120,7 @@ async function staticmap(req, res) {
     res.set('Cache-Control', 'public, max-age=86400'); // cache 24h
     res.send(buffer);
   } catch (err) {
+    console.error('[places] Maps API error:', err.message);
     res.status(502).json({ error: 'Failed to reach Google Maps API' });
   }
 }
@@ -170,6 +173,7 @@ async function tripmap(req, res) {
     res.set('Cache-Control', 'public, max-age=3600');
     res.send(buffer);
   } catch (err) {
+    console.error('[places] Maps API error:', err.message);
     res.status(502).json({ error: 'Failed to reach Google Maps API' });
   }
 }

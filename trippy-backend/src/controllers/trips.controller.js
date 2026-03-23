@@ -144,7 +144,7 @@ async function getTrip(req, res) {
         supabase.from('legs').update({
           origin_lat: leg.origin_lat, origin_lng: leg.origin_lng, origin_city: leg.origin_city,
           destination_lat: leg.destination_lat, destination_lng: leg.destination_lng, destination_city: leg.destination_city,
-        }).eq('id', leg.id).then(() => {});
+        }).eq('id', leg.id).then(() => {}).catch(err => console.error(`[backfill] Failed to update leg ${leg.id}:`, err.message));
       }
     }
   } catch (e) {
