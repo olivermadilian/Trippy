@@ -113,10 +113,14 @@ async function tryOpenSkyRegional(icaoCallsign, iataCallsign) {
   for (let i = 0; i < Math.min(2, orderedRegions.length); i++) {
     const region = regions[orderedRegions[i]];
     try {
+      console.log(`[opensky] Querying region ${orderedRegions[i]} for ${icaoCallsign}/${iataCallsign}...`);
       const response = await axios.get(`${OPENSKY_BASE}/states/all`, {
         params: region,
         timeout: 10000,
       });
+
+      const stateCount = response.data?.states?.length || 0;
+      console.log(`[opensky] Region ${orderedRegions[i]}: ${stateCount} aircraft`);
 
       if (!response.data?.states) continue;
 
@@ -126,12 +130,16 @@ async function tryOpenSkyRegional(icaoCallsign, iataCallsign) {
                cs.startsWith(icaoCallsign) || cs.startsWith(iataCallsign);
       });
 
+      if (match) {
+        console.log(`[opensky] Match: ${(match[1]||'').trim()} at ${match[6]},${match[5]} on_ground=${match[8]}`);
+      }
+
       if (match && match[5] !== null && match[6] !== null && !match[8]) {
         return formatState(match);
       }
     } catch (err) {
-      // Rate limited or timeout — try next strategy
-      if (err.response?.status === 429) break; // Don't retry if rate limited
+      console.error(`[opensky] Region ${orderedRegions[i]} error:`, err.message);
+      if (err.response?.status === 429) break;
       continue;
     }
   }

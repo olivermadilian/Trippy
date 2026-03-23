@@ -375,7 +375,11 @@ function getLivePos(leg, realPosition) {
     return { lng: realPosition.lng, lat: realPosition.lat, progress, altitude_ft: realPosition.altitude_ft, velocity_kts: realPosition.velocity_kts, heading: realPosition.heading, isReal: true };
   }
   // Fallback to estimated position based on departure/arrival times
-  const dep = new Date(leg.actual_depart || leg.depart_time).getTime(), arr = new Date(leg.arrive_time).getTime(), prog = Math.max(0, Math.min(1, (Date.now() - dep) / (arr - dep))), pos = d3.geoInterpolate([leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat])(prog);
+  const dep = new Date(leg.actual_depart || leg.depart_time).getTime(), arr = new Date(leg.arrive_time).getTime();
+  // Cap estimated progress at 95% — we can't confirm arrival without real tracking data
+  const rawProg = (arr > dep) ? (Date.now() - dep) / (arr - dep) : 0;
+  const prog = Math.max(0, Math.min(0.95, rawProg));
+  const pos = d3.geoInterpolate([leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat])(prog);
   return { lng: pos[0], lat: pos[1], progress: prog, isReal: false };
 }
 

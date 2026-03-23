@@ -7,13 +7,19 @@ async function trackFlight(req, res) {
     return res.status(400).json({ error: 'Callsign is required' });
   }
 
-  const position = await getFlightPosition(callsign);
+  try {
+    const position = await getFlightPosition(callsign);
+    console.log(`[track] ${callsign} → ${position ? `FOUND at ${position.lat},${position.lng}` : 'NOT FOUND'}`);
 
-  if (!position) {
-    return res.json({ tracking: false, position: null });
+    if (!position) {
+      return res.json({ tracking: false, position: null });
+    }
+
+    res.json({ tracking: true, position });
+  } catch (err) {
+    console.error(`[track] ${callsign} error:`, err.message);
+    res.json({ tracking: false, position: null });
   }
-
-  res.json({ tracking: true, position });
 }
 
 module.exports = { trackFlight };
