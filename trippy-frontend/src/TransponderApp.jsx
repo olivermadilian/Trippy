@@ -297,7 +297,7 @@ const C = {
 // HELPERS
 // ═══════════════════════════════════════════════════════════════════
 
-function getTripStatus(trip) { const now = new Date(), s = new Date(trip.start_date), e = new Date(trip.end_date); if (trip.legs?.some(l => l.status === "in_air" || l.status === "in_transit")) return "live"; if (now < s) return "upcoming"; if (now > e) return "completed"; return "active"; }
+function getTripStatus(trip) { const now = new Date(), s = new Date(trip.start_date), e = new Date(trip.end_date); if (trip.legs?.some(l => isLegLive(l))) return "live"; if (now < s) return "upcoming"; if (now > e) return "completed"; return "active"; }
 function formatDateRange(s, e) { if (!s || !e) return ""; const sd = new Date(s + "T00:00:00"), ed = new Date(e + "T00:00:00"), o = { month: "short", day: "numeric" }; return `${sd.toLocaleDateString("en-US", o)} — ${ed.toLocaleDateString("en-US", o)}, ${ed.getFullYear()}`; }
 // Extract time directly from ISO string (preserves local airport time, avoids TZ conversion)
 function formatTime(iso) {
@@ -333,8 +333,18 @@ function formatDuration(d, a, origin, destination) {
 }
 function calcNights(leg) { if (leg.metadata?.nights) return leg.metadata.nights; if (!leg.depart_time || !leg.arrive_time) return 1; const ci = leg.depart_time.split("T")[0], co = leg.arrive_time.split("T")[0]; return Math.max(1, Math.round((new Date(co) - new Date(ci)) / 86400000)); }
 function interpolateGC(p1, p2, n = 60) { const i = d3.geoInterpolate(p1, p2); return Array.from({ length: n + 1 }, (_, k) => i(k / n)); }
+function isLegLive(leg) {
+  if (leg.status === "in_air" || leg.status === "in_transit") return true;
+  // Auto-detect: if departure time has passed and arrival time hasn't, it's probably live
+  if (leg.type === "flight" && leg.depart_time && leg.arrive_time && leg.status !== "completed" && leg.status !== "cancelled") {
+    const now = Date.now(), dep = new Date(leg.depart_time).getTime(), arr = new Date(leg.arrive_time).getTime();
+    if (now >= dep && now <= arr) return true;
+  }
+  return false;
+}
+
 function getLivePos(leg, realPosition) {
-  if (leg.status !== "in_air" && leg.status !== "in_transit") return null;
+  if (!isLegLive(leg)) return null;
   // If we have real ADS-B data from OpenSky, use it
   if (realPosition) {
     const totalDist = d3.geoDistance([leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat]);
@@ -350,7 +360,7 @@ function getLivePos(leg, realPosition) {
 function useLiveTracking(leg) {
   const [liveData, setLiveData] = useState(null);
   useEffect(() => {
-    if (!leg || (leg.status !== "in_air" && leg.status !== "in_transit")) { setLiveData(null); return; }
+    if (!leg || !isLegLive(leg)) { setLiveData(null); return; }
     if (leg.type !== "flight") { setLiveData(null); return; }
     const callsign = leg.vehicle_number;
     if (!callsign) { setLiveData(null); return; }
@@ -371,7 +381,7 @@ function useLiveTracking(leg) {
 function computePresence(trip) {
   if (!trip.legs?.length) return { mode: "pre", narrative: "No legs yet", subtext: "", progress: null, legType: null, emoji: "🗓" };
   const now = Date.now();
-  for (const leg of trip.legs) { if (leg.status === "in_air" || leg.status === "in_transit") { const dep = new Date(leg.actual_depart || leg.depart_time).getTime(), arr = new Date(leg.arrive_time).getTime(), prog = Math.max(0, Math.min(1, (now - dep) / (arr - dep))); return { mode: "transit", narrative: leg.type === "flight" ? `In the air — ${leg.carrier} ${leg.vehicle_number}` : `On the ${leg.vehicle_number || leg.carrier}`, subtext: `${Math.round(prog * 100)}% · ${leg.origin.code || leg.origin.city} → ${leg.destination.code || leg.destination.city}`, progress: prog, legType: leg.type, emoji: leg.type === "flight" ? "✈" : "🚄" }; } }
+  for (const leg of trip.legs) { if (isLegLive(leg)) { const dep = new Date(leg.actual_depart || leg.depart_time).getTime(), arr = new Date(leg.arrive_time).getTime(), prog = Math.max(0, Math.min(1, (now - dep) / (arr - dep))); return { mode: "transit", narrative: leg.type === "flight" ? `In the air — ${leg.carrier} ${leg.vehicle_number}` : `On the ${leg.vehicle_number || leg.carrier}`, subtext: `${Math.round(prog * 100)}% · ${leg.origin.code || leg.origin.city} → ${leg.destination.code || leg.destination.city}`, progress: prog, legType: leg.type, emoji: leg.type === "flight" ? "✈" : "🚄" }; } }
   for (const leg of trip.legs) { if (leg.type === "hotel") { const ci = new Date(leg.depart_time).getTime(), co = new Date(leg.arrive_time).getTime(); if (now >= ci && now <= co) { const h = new Date().getHours(), act = h >= 22 || h < 7 ? "Winding down" : h < 10 ? "Starting the morning" : h < 14 ? "Out and about" : h < 18 ? "Exploring" : "Evening"; return { mode: "dwelling", narrative: `${act} in ${leg.origin.city}`, subtext: `Staying in ${leg.origin.city}`, progress: null, legType: "hotel", emoji: h >= 22 || h < 7 ? "🌙" : "🏙" }; } } }
   const first = trip.legs[0]; if (first && now < new Date(first.depart_time).getTime()) { const d = Math.ceil((new Date(first.depart_time).getTime() - now) / 86400000); return { mode: "pre", narrative: `Starts ${d === 0 ? "today" : d === 1 ? "tomorrow" : `in ${d} days`}`, subtext: `${first.origin?.city} → ${trip.legs[trip.legs.length - 1].destination?.city || "adventure"}`, progress: null, legType: null, emoji: "🗓" }; }
   return { mode: "post", narrative: "Trip complete", subtext: "Back home", progress: null, legType: null, emoji: "🏠" };
@@ -1073,7 +1083,7 @@ function DashboardMap({ trips, filter, heroTripId, hoveredTripId }) {
         g.append("text").attr("x", x).attr("y", y - 12).attr("text-anchor", "middle").attr("fill", "var(--map-label)").attr("font-size", "9px").attr("font-family", FONT).attr("font-weight", 600).text(city.code || city.city);
       });
 
-      const liveLeg = heroTrip.legs?.find(l => l.status === "in_air" || l.status === "in_transit");
+      const liveLeg = heroTrip.legs?.find(l => isLegLive(l));
       if (liveLeg) {
         const lp = getLivePos(liveLeg);
         if (lp) {
@@ -1249,7 +1259,7 @@ function FollowingTab({ following, setFollowing, fetchData, navigate, mode }) {
   const getActiveLeg = (trip) => {
     const now = Date.now();
     return trip.legs?.find(l => {
-      if (l.status === "in_air" || l.status === "in_transit") return true;
+      if (isLegLive(l)) return true;
       const dep = new Date(l.depart_time).getTime();
       const arr = new Date(l.arrive_time).getTime();
       return now >= dep && now <= arr && l.type !== "hotel";
@@ -1600,7 +1610,7 @@ function DashboardPage() {
                       <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--accent-flight-bright)", fontWeight: 700 }}>LIVE NOW</p>
                     </div>
                     {live.map(trip => {
-                      const liveLeg = trip.legs?.find(l => l.status === "in_air" || l.status === "in_transit");
+                      const liveLeg = trip.legs?.find(l => isLegLive(l));
                       const livePos = liveLeg ? getLivePos(liveLeg) : null;
                       return (
                         <div key={trip.id} onMouseEnter={() => setHoveredTripId(trip.id)} onMouseLeave={() => setHoveredTripId(null)}>
@@ -1778,7 +1788,7 @@ function DashboardPage() {
                       <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--accent-flight-bright)", fontWeight: 700 }}>LIVE NOW</p>
                     </div>
                     {live.map(trip => {
-                      const liveLeg = trip.legs?.find(l => l.status === "in_air" || l.status === "in_transit");
+                      const liveLeg = trip.legs?.find(l => isLegLive(l));
                       const livePos = liveLeg ? getLivePos(liveLeg) : null;
                       return (
                         <button key={trip.id} onClick={() => navWithScroll("detail", { tripId: trip.id })} className="w-full text-left mb-2 tappable-card" style={{ border: "1px solid var(--border-primary)", borderLeft: "3px solid var(--strip-flight)", borderRadius: 6, padding: 14, background: "var(--bg-card)" }}>
@@ -2320,7 +2330,7 @@ function DetailPage({ tripId }) {
   // Periodic tick to refresh estimated position when a leg is live
   const [mapTick, setMapTick] = useState(0);
   useEffect(() => {
-    const isLive = activeFlightLeg && (activeFlightLeg.status === "in_air" || activeFlightLeg.status === "in_transit");
+    const isLive = activeFlightLeg && isLegLive(activeFlightLeg);
     if (!isLive) return;
     const interval = setInterval(() => setMapTick(t => t + 1), 30000);
     return () => clearInterval(interval);
@@ -2328,7 +2338,7 @@ function DetailPage({ tripId }) {
 
   const fetchTrip = async () => { setLoading(true); try { const t = await api(`/trips/${tripId}`); setTrip(mapTrip(t)); } catch (e) { setTrip(null); } setLoading(false); };
   useEffect(() => { fetchTrip(); }, [tripId]);
-  useEffect(() => { if (trip) { const li = trip.legs?.findIndex(l => l.status === "in_air" || l.status === "in_transit"); setActiveLeg(li >= 0 ? li : 0); } }, [trip?.id]);
+  useEffect(() => { if (trip) { const li = trip.legs?.findIndex(l => isLegLive(l)); setActiveLeg(li >= 0 ? li : 0); } }, [trip?.id]);
 
   const enterEdit = () => { if (!trip) return; setEditing(true); setEditTitle(trip.title); setEditStart(trip.start_date); setEditEnd(trip.end_date); };
   const saveEdit = async () => { setSaving(true); try { await api(`/trips/${trip.id}`, { method: "PUT", body: JSON.stringify({ title: editTitle, start_date: editStart, end_date: editEnd }) }); setTrip(prev => ({ ...prev, title: editTitle, start_date: editStart, end_date: editEnd })); setEditing(false); } catch (e) { alert(e.message); } setSaving(false); };
@@ -2370,7 +2380,7 @@ function DetailPage({ tripId }) {
       <div className="flex flex-col">
         {trip.legs?.map((leg, i) => {
           const isHotel = leg.type === "hotel";
-          const isLive = leg.status === "in_air" || leg.status === "in_transit";
+          const isLive = isLegLive(leg);
           const stripColor = STRIP_COLORS[leg.type] || "var(--strip-flight)";
           const isDeleting = confirmDelete === leg.id;
           const cardBg = isHotel ? "var(--bg-card-hotel)" : "var(--bg-card)";
@@ -3153,7 +3163,7 @@ function SharedPage({ tripId }) {
   const [mapView, setMapView] = useState("radar");
 
   useEffect(() => { setLoading(true); api(`/trips/${tripId}`).then(t => setTrip(mapTrip(t))).catch(() => setTrip(null)).finally(() => setLoading(false)); }, [tripId]);
-  useEffect(() => { if (trip) { const li = trip.legs?.findIndex(l => l.status === "in_air" || l.status === "in_transit"); setActiveLeg(li >= 0 ? li : 0); } }, [trip?.id]);
+  useEffect(() => { if (trip) { const li = trip.legs?.findIndex(l => isLegLive(l)); setActiveLeg(li >= 0 ? li : 0); } }, [trip?.id]);
 
   if (loading) return <LoadingScreen />;
   if (!trip) return <div className="text-center py-12"><p style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>Trip not found</p></div>;
@@ -3175,7 +3185,7 @@ function SharedPage({ tripId }) {
   // Narrative for shared view (privacy-respecting)
   const getSharedNarrative = () => {
     if (presence.mode === "transit") {
-      const liveLeg = trip.legs?.find(l => l.status === "in_air" || l.status === "in_transit");
+      const liveLeg = trip.legs?.find(l => isLegLive(l));
       if (liveLeg) {
         const arrTime = formatTime(liveLeg.arrive_time);
         return { main: `Currently airborne. ${liveLeg.origin?.code || liveLeg.origin?.city} \u2192 ${liveLeg.destination?.code || liveLeg.destination?.city} \u00B7 ${liveLeg.carrier} ${liveLeg.vehicle_number || ""}`.trim(), sub: `Lands at ${arrTime} local.` };
@@ -3294,7 +3304,7 @@ function SharedPage({ tripId }) {
       <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "3px", color: "var(--text-secondary)", fontWeight: 700, marginBottom: 10 }}>ITINERARY</p>
       {trip.legs?.map((leg, i) => {
         const isHotel = leg.type === "hotel";
-        const isLive = leg.status === "in_air" || leg.status === "in_transit";
+        const isLive = isLegLive(leg);
         const stripColors = { flight: "var(--strip-flight)", hotel: "var(--strip-hotel)", train: "var(--strip-train)", bus: "var(--strip-bus)" };
         const stripColor = stripColors[leg.type] || "var(--strip-flight)";
         const cardBg = isHotel ? "var(--bg-card-hotel)" : "var(--bg-card)";
