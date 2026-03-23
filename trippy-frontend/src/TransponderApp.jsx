@@ -302,16 +302,13 @@ function formatDateRange(s, e) { if (!s || !e) return ""; const sd = new Date(s 
 // Extract time directly from ISO string (preserves local airport time, avoids TZ conversion)
 function formatTime(iso) {
   if (!iso) return "—";
-  const t = typeof iso === "string" ? iso.substring(11, 16) : null;
-  if (!t || t.length < 5) return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
-  const [h, m] = t.split(":").map(Number);
-  const ampm = h >= 12 ? "PM" : "AM";
-  const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
-  return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+  // Parse as a proper Date and format in user's local timezone
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
 }
-// For flight legs from AviationStack, prefer the local airport time from metadata
-function legDepartTime(leg) { return formatTime(leg.metadata?.depart_local || leg.depart_time); }
-function legArriveTime(leg) { return formatTime(leg.metadata?.arrive_local || leg.arrive_time); }
+function legDepartTime(leg) { return formatTime(leg.depart_time); }
+function legArriveTime(leg) { return formatTime(leg.arrive_time); }
 // Extract date directly from ISO string (avoids TZ shift)
 function formatDate(iso) {
   if (!iso) return "";
@@ -2462,8 +2459,8 @@ function DetailPage({ tripId }) {
                       <span style={{ fontFamily: FONT, fontSize: "24px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "2px" }}>{leg.destination?.code || leg.destination?.city?.slice(0, 3)?.toUpperCase() || "?"}</span>
                     </div>
                     <div className="flex items-center justify-between mb-2">
-                      <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{legDepartTime(leg)} LOCAL</span>
-                      <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{legArriveTime(leg)} LOCAL</span>
+                      <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{legDepartTime(leg)}</span>
+                      <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{legArriveTime(leg)}</span>
                     </div>
                     {isLive && i === activeLeg && (() => {
                       const livePos = getLivePos(leg, liveTrackData);
