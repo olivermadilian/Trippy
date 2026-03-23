@@ -333,7 +333,40 @@ function formatDuration(d, a, origin, destination) {
 }
 function calcNights(leg) { if (leg.metadata?.nights) return leg.metadata.nights; if (!leg.depart_time || !leg.arrive_time) return 1; const ci = leg.depart_time.split("T")[0], co = leg.arrive_time.split("T")[0]; return Math.max(1, Math.round((new Date(co) - new Date(ci)) / 86400000)); }
 function interpolateGC(p1, p2, n = 60) { const i = d3.geoInterpolate(p1, p2); return Array.from({ length: n + 1 }, (_, k) => i(k / n)); }
-function getLivePos(leg) { if (leg.status !== "in_air" && leg.status !== "in_transit") return null; const dep = new Date(leg.actual_depart || leg.depart_time).getTime(), arr = new Date(leg.arrive_time).getTime(), prog = Math.max(0, Math.min(1, (Date.now() - dep) / (arr - dep))), pos = d3.geoInterpolate([leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat])(prog); return { lng: pos[0], lat: pos[1], progress: prog }; }
+function getLivePos(leg, realPosition) {
+  if (leg.status !== "in_air" && leg.status !== "in_transit") return null;
+  // If we have real ADS-B data from OpenSky, use it
+  if (realPosition) {
+    const totalDist = d3.geoDistance([leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat]);
+    const coveredDist = d3.geoDistance([leg.origin.lng, leg.origin.lat], [realPosition.lng, realPosition.lat]);
+    const progress = totalDist > 0 ? Math.min(1, coveredDist / totalDist) : 0;
+    return { lng: realPosition.lng, lat: realPosition.lat, progress, altitude_ft: realPosition.altitude_ft, velocity_kts: realPosition.velocity_kts, heading: realPosition.heading, isReal: true };
+  }
+  // Fallback to estimated position based on departure/arrival times
+  const dep = new Date(leg.actual_depart || leg.depart_time).getTime(), arr = new Date(leg.arrive_time).getTime(), prog = Math.max(0, Math.min(1, (Date.now() - dep) / (arr - dep))), pos = d3.geoInterpolate([leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat])(prog);
+  return { lng: pos[0], lat: pos[1], progress: prog, isReal: false };
+}
+
+function useLiveTracking(leg) {
+  const [liveData, setLiveData] = useState(null);
+  useEffect(() => {
+    if (!leg || (leg.status !== "in_air" && leg.status !== "in_transit")) { setLiveData(null); return; }
+    if (leg.type !== "flight") { setLiveData(null); return; }
+    const callsign = leg.vehicle_number;
+    if (!callsign) { setLiveData(null); return; }
+    let active = true;
+    const poll = async () => {
+      try {
+        const res = await api(`/flights/track/${encodeURIComponent(callsign)}`);
+        if (active && res.tracking && res.position) { setLiveData(res.position); } else if (active) { setLiveData(null); }
+      } catch { if (active) setLiveData(null); }
+    };
+    poll();
+    const interval = setInterval(poll, 30000);
+    return () => { active = false; clearInterval(interval); };
+  }, [leg?.id, leg?.status, leg?.vehicle_number]);
+  return liveData;
+}
 
 function computePresence(trip) {
   if (!trip.legs?.length) return { mode: "pre", narrative: "No legs yet", subtext: "", progress: null, legType: null, emoji: "🗓" };
@@ -1943,7 +1976,7 @@ function RouteSummaryBar({ legs }) {
 // MAP (radar aesthetic)
 // ═══════════════════════════════════════════════════════════════════
 
-function TripMap({ trip, activeLegIndex, mode, isSharedView }) {
+function TripMap({ trip, activeLegIndex, mode, isSharedView, liveTrackData, mapTick }) {
   const svgRef = useRef(null), containerRef = useRef(null), zoomRef = useRef(null);
   const draw = useCallback(() => {
     const el = containerRef.current, svg = d3.select(svgRef.current); if (!el) return;
@@ -2025,7 +2058,7 @@ function TripMap({ trip, activeLegIndex, mode, isSharedView }) {
     // Live position dot
     const aLeg = trip.legs?.[activeLegIndex];
     if (aLeg) {
-      const lp = getLivePos(aLeg);
+      const lp = getLivePos(aLeg, liveTrackData);
       if (lp) {
         const [px, py] = proj([lp.lng, lp.lat]);
         const ping = g.append("circle").attr("cx", px).attr("cy", py).attr("r", 5).attr("fill", "none").attr("stroke", "var(--map-arc)").attr("stroke-width", 1.5).attr("opacity", 0);
@@ -2049,7 +2082,7 @@ function TripMap({ trip, activeLegIndex, mode, isSharedView }) {
     svg.on("dblclick.zoom", null); // disable double-click zoom
     zoomRef.current = zoom;
 
-  }, [trip, activeLegIndex, mode]);
+  }, [trip, activeLegIndex, mode, liveTrackData, mapTick]);
 
   useEffect(() => { draw(); const h = () => draw(); window.addEventListener("resize", h); return () => window.removeEventListener("resize", h); }, [draw]);
 
@@ -2280,6 +2313,19 @@ function DetailPage({ tripId }) {
   };
   const typeCfg = { flight: { label: "FLIGHT", color: "var(--strip-flight)" }, hotel: { label: "GROUND STOP", color: "var(--strip-hotel)" }, train: { label: "TRAIN", color: "var(--strip-train)" }, bus: { label: "BUS", color: "var(--strip-bus)" } };
 
+  // Live ADS-B tracking for the active leg
+  const activeFlightLeg = trip?.legs?.[activeLeg];
+  const liveTrackData = useLiveTracking(activeFlightLeg);
+
+  // Periodic tick to refresh estimated position when a leg is live
+  const [mapTick, setMapTick] = useState(0);
+  useEffect(() => {
+    const isLive = activeFlightLeg && (activeFlightLeg.status === "in_air" || activeFlightLeg.status === "in_transit");
+    if (!isLive) return;
+    const interval = setInterval(() => setMapTick(t => t + 1), 30000);
+    return () => clearInterval(interval);
+  }, [activeFlightLeg?.id, activeFlightLeg?.status]);
+
   const fetchTrip = async () => { setLoading(true); try { const t = await api(`/trips/${tripId}`); setTrip(mapTrip(t)); } catch (e) { setTrip(null); } setLoading(false); };
   useEffect(() => { fetchTrip(); }, [tripId]);
   useEffect(() => { if (trip) { const li = trip.legs?.findIndex(l => l.status === "in_air" || l.status === "in_transit"); setActiveLeg(li >= 0 ? li : 0); } }, [trip?.id]);
@@ -2384,6 +2430,27 @@ function DetailPage({ tripId }) {
                       <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{formatTime(leg.actual_depart || leg.depart_time)} LOCAL</span>
                       <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{formatTime(leg.arrive_time)} LOCAL</span>
                     </div>
+                    {isLive && i === activeLeg && (() => {
+                      const livePos = getLivePos(leg, liveTrackData);
+                      return livePos ? (
+                        <div className="mb-2 pt-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+                          <div className="flex items-center gap-2">
+                            <div style={{ width: 80, height: 4, borderRadius: 2, background: "var(--border-primary)", overflow: "hidden" }}>
+                              <div style={{ width: `${livePos.progress * 100}%`, height: "100%", borderRadius: 2, background: "var(--accent-flight)" }} />
+                            </div>
+                            <span style={{ fontFamily: FONT, fontSize: "9px", fontWeight: 700, color: "var(--text-secondary)" }}>{Math.round(livePos.progress * 100)}%</span>
+                            <span style={{ fontFamily: FONT, fontSize: "7px", letterSpacing: "1px", color: livePos.isReal ? "var(--accent-flight)" : "var(--text-tertiary)" }}>{livePos.isReal ? "LIVE" : "EST"}</span>
+                          </div>
+                          {livePos.isReal && livePos.altitude_ft && (
+                            <div className="flex gap-3 mt-1">
+                              <span style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)" }}>FL{Math.round(livePos.altitude_ft / 100)}</span>
+                              {livePos.velocity_kts && <span style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)" }}>{livePos.velocity_kts} KTS</span>}
+                              {livePos.heading != null && <span style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)" }}>HDG {Math.round(livePos.heading)}&deg;</span>}
+                            </div>
+                          )}
+                        </div>
+                      ) : null;
+                    })()}
                     {(leg.vehicle_number || leg.carrier || Object.keys(leg.metadata || {}).length > 0) && (
                       <div className="flex items-center justify-between pt-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
                         <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{[leg.vehicle_number, leg.carrier].filter(Boolean).join(" \u00B7 ")}</span>
@@ -2501,7 +2568,7 @@ function DetailPage({ tripId }) {
       {mapView === "satellite" ? (
         <SatelliteMap trip={trip} height={isDesktop ? "100%" : 260} />
       ) : (
-        <TripMap trip={trip} activeLegIndex={activeLeg} mode={mode} />
+        <TripMap trip={trip} activeLegIndex={activeLeg} mode={mode} liveTrackData={liveTrackData} mapTick={mapTick} />
       )}
     </div>
   );

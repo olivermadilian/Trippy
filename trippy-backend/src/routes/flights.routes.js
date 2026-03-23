@@ -2,6 +2,7 @@ const { Router } = require('express');
 const rateLimit = require('express-rate-limit');
 const { requireAuth } = require('../middleware/auth');
 const { lookup } = require('../controllers/flights.controller');
+const { trackFlight } = require('../controllers/tracking.controller');
 
 const router = Router();
 
@@ -12,6 +13,14 @@ const flightLimiter = rateLimit({
   message: { error: 'Too many flight lookups. Try again in a minute.' }
 });
 
+// Rate limit live tracking (OpenSky is ~10 req/min for anonymous)
+const trackLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 12,
+  message: { error: 'Too many tracking requests. Try again in a minute.' }
+});
+
 router.get('/lookup', requireAuth, flightLimiter, lookup);
+router.get('/track/:callsign', requireAuth, trackLimiter, trackFlight);
 
 module.exports = router;
