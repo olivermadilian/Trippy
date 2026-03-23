@@ -333,24 +333,24 @@ function formatDuration(d, a, origin, destination) {
 }
 function calcNights(leg) { if (leg.metadata?.nights) return leg.metadata.nights; if (!leg.depart_time || !leg.arrive_time) return 1; const ci = leg.depart_time.split("T")[0], co = leg.arrive_time.split("T")[0]; return Math.max(1, Math.round((new Date(co) - new Date(ci)) / 86400000)); }
 function interpolateGC(p1, p2, n = 60) { const i = d3.geoInterpolate(p1, p2); return Array.from({ length: n + 1 }, (_, k) => i(k / n)); }
-// Check if a leg might be live. Uses a 3-hour buffer after scheduled arrival
-// to account for delays, timezone mismatches, and late departures.
-const LIVE_BUFFER_MS = 3 * 60 * 60 * 1000; // 3 hours
+// Check if a leg might be live. Uses a 6-hour buffer after scheduled arrival
+// to handle delays AND timezone mismatches (AviationStack returns local times
+// stored as UTC — can be off by up to 5-6 hours for US flights).
+const LIVE_BUFFER_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 function isLegLive(leg, realTrackData) {
   if (leg.status === "in_air" || leg.status === "in_transit") return true;
-  // If OpenSky confirms the flight is in the air, trust that
+  // If OpenSky/ADS-B confirms the flight is in the air, trust that
   if (realTrackData) return true;
   // Auto-detect based on scheduled times with generous buffer
   if (leg.type === "flight" && leg.depart_time && leg.arrive_time && leg.status !== "completed" && leg.status !== "cancelled") {
     const now = Date.now(), dep = new Date(leg.depart_time).getTime(), arr = new Date(leg.arrive_time).getTime();
-    // Live window: from departure time through arrival + 3h buffer (covers delays + TZ issues)
     if (now >= dep && now <= arr + LIVE_BUFFER_MS) return true;
   }
   return false;
 }
 
-// Should we probe OpenSky for this leg? More aggressive than isLegLive —
+// Should we probe ADS-B for this leg? More aggressive than isLegLive —
 // checks a wide window around the scheduled flight time.
 function shouldProbeTracking(leg) {
   if (!leg || leg.type !== "flight" || !leg.vehicle_number) return false;
@@ -358,8 +358,8 @@ function shouldProbeTracking(leg) {
   if (leg.status === "in_air" || leg.status === "in_transit") return true;
   if (!leg.depart_time || !leg.arrive_time) return false;
   const now = Date.now(), dep = new Date(leg.depart_time).getTime(), arr = new Date(leg.arrive_time).getTime();
-  // Probe window: 1 hour before departure through arrival + 4 hours
-  return now >= dep - 3600000 && now <= arr + 4 * 3600000;
+  // Probe window: 2 hours before departure through arrival + 8 hours (covers worst-case TZ offset)
+  return now >= dep - 2 * 3600000 && now <= arr + 8 * 3600000;
 }
 
 function getLivePos(leg, realPosition) {
