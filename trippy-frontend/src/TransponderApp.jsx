@@ -62,8 +62,8 @@ function mapTrip(t) {
 function mapFlightLookup(r) {
   return {
     carrier: r.carrier, carrier_code: r.carrier_code, callsign: r.callsign,
-    origin: { code: r.origin.code, airport: r.origin.airport, scheduled: r.origin.scheduled, terminal: r.origin.terminal, gate: r.origin.gate },
-    destination: { code: r.destination.code, airport: r.destination.airport, scheduled: r.destination.scheduled, terminal: r.destination.terminal, gate: r.destination.gate },
+    origin: { code: r.origin.code, airport: r.origin.airport, scheduled: r.origin.scheduled, scheduled_local: r.origin.scheduled_local, terminal: r.origin.terminal, gate: r.origin.gate },
+    destination: { code: r.destination.code, airport: r.destination.airport, scheduled: r.destination.scheduled, scheduled_local: r.destination.scheduled_local, terminal: r.destination.terminal, gate: r.destination.gate },
     status: r.status, flight_date: r.flight_date,
   };
 }
@@ -309,6 +309,9 @@ function formatTime(iso) {
   const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
   return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
 }
+// For flight legs from AviationStack, prefer the local airport time from metadata
+function legDepartTime(leg) { return formatTime(leg.metadata?.depart_local || leg.depart_time); }
+function legArriveTime(leg) { return formatTime(leg.metadata?.arrive_local || leg.arrive_time); }
 // Extract date directly from ISO string (avoids TZ shift)
 function formatDate(iso) {
   if (!iso) return "";
@@ -2371,7 +2374,7 @@ function DetailPage({ tripId }) {
 
   const addLeg = async () => {
     let newLeg;
-    if (bType === "flight" && bAF) { newLeg = { type: "flight", origin: { code: bAF.origin.code, city: bAF.origin.airport, lat: 0, lng: 0 }, destination: { code: bAF.destination.code, city: bAF.destination.airport, lat: 0, lng: 0 }, depart_time: bAF.origin.scheduled, arrive_time: bAF.destination.scheduled, carrier: bAF.carrier, vehicle_number: bAF.callsign, metadata: { terminal: bAF.origin.terminal, gate: bAF.origin.gate } }; }
+    if (bType === "flight" && bAF) { newLeg = { type: "flight", origin: { code: bAF.origin.code, city: bAF.origin.airport, lat: 0, lng: 0 }, destination: { code: bAF.destination.code, city: bAF.destination.airport, lat: 0, lng: 0 }, depart_time: bAF.origin.scheduled, arrive_time: bAF.destination.scheduled, carrier: bAF.carrier, vehicle_number: bAF.callsign, metadata: { terminal: bAF.origin.terminal, gate: bAF.origin.gate, depart_local: bAF.origin.scheduled_local || null, arrive_local: bAF.destination.scheduled_local || null } }; }
     else if (bType === "hotel") { const nights = bHO ? Math.max(1, Math.round((new Date(bHO) - new Date(bHI)) / 86400000)) : 1; const hLat = bHPlace?.lat || 0; const hLng = bHPlace?.lng || 0; const hCity = bHPlace?.city || bHN; newLeg = { type: "hotel", origin: { code: null, city: hCity, lat: hLat, lng: hLng }, destination: { code: null, city: hCity, lat: hLat, lng: hLng }, depart_time: `${bHI}T15:00:00Z`, arrive_time: bHO ? `${bHO}T11:00:00Z` : `${bHI}T11:00:00Z`, carrier: bHN, vehicle_number: null, metadata: { nights, confirmation: bHC, address: bHPlace?.address || null } }; }
     else { const oLat = bOPlace?.lat || 0; const oLng = bOPlace?.lng || 0; const dLat = bDPlace?.lat || 0; const dLng = bDPlace?.lng || 0; const oCity = bOPlace?.city || bO; const dCity = bDPlace?.city || bD; newLeg = { type: bType, origin: { code: bO.slice(0, 3).toUpperCase(), city: oCity, lat: oLat, lng: oLng }, destination: { code: bD.slice(0, 3).toUpperCase(), city: dCity, lat: dLat, lng: dLng }, depart_time: `${bDt}T${bTm || "08:00"}:00Z`, arrive_time: `${bDt}T12:00:00Z`, carrier: bType === "train" ? "Train" : "Bus", vehicle_number: null, metadata: {} }; }
     try {
@@ -2455,8 +2458,8 @@ function DetailPage({ tripId }) {
                       <span style={{ fontFamily: FONT, fontSize: "24px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "2px" }}>{leg.destination?.code || leg.destination?.city?.slice(0, 3)?.toUpperCase() || "?"}</span>
                     </div>
                     <div className="flex items-center justify-between mb-2">
-                      <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{formatTime(leg.actual_depart || leg.depart_time)} LOCAL</span>
-                      <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{formatTime(leg.arrive_time)} LOCAL</span>
+                      <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{legDepartTime(leg)} LOCAL</span>
+                      <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{legArriveTime(leg)} LOCAL</span>
                     </div>
                     {isLive && i === activeLeg && (() => {
                       const livePos = getLivePos(leg, liveTrackData);
@@ -2732,8 +2735,11 @@ function CreatePage() {
     setBAF(af); setBFlightOptions(null);
     setFOrigin(af.origin.code || "");
     setFDest(af.destination.code || "");
-    if (af.origin.scheduled) { setFDepart(af.origin.scheduled.substring(11, 16)); if (!fDate) setFDate(af.origin.scheduled.substring(0, 10)); }
-    if (af.destination.scheduled) { setFArrive(af.destination.scheduled.substring(11, 16)); setFArriveDate(af.destination.scheduled.substring(0, 10)); }
+    // Use local time for display fields, fall back to UTC scheduled
+    const depLocal = af.origin.scheduled_local || af.origin.scheduled || "";
+    const arrLocal = af.destination.scheduled_local || af.destination.scheduled || "";
+    if (depLocal) { setFDepart(depLocal.substring(11, 16)); if (!fDate) setFDate(depLocal.substring(0, 10)); }
+    if (arrLocal) { setFArrive(arrLocal.substring(11, 16)); setFArriveDate(arrLocal.substring(0, 10)); }
     setFCarrier(af.carrier || "");
     setFFlightNo(af.callsign || "");
   };
@@ -2756,14 +2762,17 @@ function CreatePage() {
   // Build a leg object from current builder state
   const buildLeg = () => {
     if (bType === "flight") {
+      // If flight was looked up, use UTC times from API; manual fields show local times for display
+      const depTime = bAF?.origin?.scheduled || (fDate && fDepart ? `${fDate}T${fDepart}:00Z` : null);
+      const arrTime = bAF?.destination?.scheduled || (fDate && fArrive ? (() => { const ad = fArriveDate || (fArrive < fDepart ? (() => { const d = new Date(`${fDate}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().split("T")[0]; })() : fDate); return `${ad}T${fArrive}:00Z`; })() : null);
       return {
         type: "flight",
-        origin: { code: fOrigin.toUpperCase(), city: fOrigin, lat: 0, lng: 0 },
-        destination: { code: fDest.toUpperCase(), city: fDest, lat: 0, lng: 0 },
-        depart_time: fDate && fDepart ? `${fDate}T${fDepart}:00Z` : null,
-        arrive_time: fDate && fArrive ? (() => { const ad = fArriveDate || (fArrive < fDepart ? (() => { const d = new Date(`${fDate}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().split("T")[0]; })() : fDate); return `${ad}T${fArrive}:00Z`; })() : null,
+        origin: { code: fOrigin.toUpperCase(), city: bAF?.origin?.airport || fOrigin, lat: 0, lng: 0 },
+        destination: { code: fDest.toUpperCase(), city: bAF?.destination?.airport || fDest, lat: 0, lng: 0 },
+        depart_time: depTime,
+        arrive_time: arrTime,
         carrier: fCarrier, vehicle_number: fFlightNo,
-        metadata: bAF ? { terminal: bAF.origin.terminal, gate: bAF.origin.gate } : {},
+        metadata: bAF ? { terminal: bAF.origin.terminal, gate: bAF.origin.gate, depart_local: bAF.origin.scheduled_local || null, arrive_local: bAF.destination.scheduled_local || null } : {},
       };
     }
     if (bType === "hotel") {
@@ -3364,11 +3373,11 @@ function SharedPage({ tripId }) {
                     <span style={{ fontFamily: FONT, fontSize: "24px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "2px" }}>{leg.destination?.code || leg.destination?.city?.slice(0, 3)?.toUpperCase() || "?"}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{formatTime(leg.depart_time)}</span>
-                    <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{formatTime(leg.arrive_time)}</span>
+                    <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{legDepartTime(leg)}</span>
+                    <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{legArriveTime(leg)}</span>
                   </div>
                   <div className="pt-2 mt-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
-                    <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{[leg.carrier, formatTime(leg.depart_time) + " \u2192 " + formatTime(leg.arrive_time)].filter(Boolean).join(" \u00B7 ")}</span>
+                    <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{[leg.carrier, legDepartTime(leg) + " \u2192 " + legArriveTime(leg)].filter(Boolean).join(" \u00B7 ")}</span>
                   </div>
                 </>
               )}

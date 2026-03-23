@@ -2,6 +2,64 @@ const axios = require('axios');
 
 const API_BASE = 'http://api.aviationstack.com/v1';
 
+/**
+ * Convert a local time string + IANA timezone to proper UTC ISO string.
+ * AviationStack returns times like "2026-03-22T17:14:00+00:00" where the
+ * time is actually LOCAL but the offset is misleadingly +00:00.
+ * We extract the raw time and apply the real timezone.
+ */
+function toUTC(localTimeStr, timezone) {
+  if (!localTimeStr) return null;
+  // Extract the date/time portion (ignore any offset AviationStack provides)
+  const raw = localTimeStr.replace(/[+-]\d{2}:\d{2}$/, '').replace('Z', '');
+
+  if (!timezone) {
+    // No timezone info — return as-is with Z (best we can do)
+    return raw + 'Z';
+  }
+
+  try {
+    // Use Intl to figure out the UTC offset for this timezone at this date/time
+    // Create a Date object treating the raw time as UTC temporarily
+    const tempDate = new Date(raw + 'Z');
+
+    // Get the timezone offset by comparing UTC format vs local format
+    const utcParts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'UTC',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false,
+    }).formatToParts(tempDate);
+
+    const localParts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false,
+    }).formatToParts(tempDate);
+
+    const getVal = (parts, type) => parts.find(p => p.type === type)?.value;
+    const utcH = parseInt(getVal(utcParts, 'hour'));
+    const localH = parseInt(getVal(localParts, 'hour'));
+    const utcD = parseInt(getVal(utcParts, 'day'));
+    const localD = parseInt(getVal(localParts, 'day'));
+
+    // Calculate offset in hours (local - UTC)
+    let offsetHours = localH - utcH;
+    if (localD > utcD) offsetHours += 24;
+    if (localD < utcD) offsetHours -= 24;
+
+    // The raw time IS local, so to get UTC we subtract the offset
+    const localDate = new Date(raw + 'Z');
+    localDate.setUTCHours(localDate.getUTCHours() - offsetHours);
+
+    return localDate.toISOString();
+  } catch (e) {
+    // If timezone conversion fails, return raw with Z
+    return raw + 'Z';
+  }
+}
+
 async function lookupFlight(callsign, date) {
   const clean = callsign.toUpperCase().replace(/\s+/g, '');
 
@@ -33,7 +91,13 @@ async function lookupFlight(callsign, date) {
     }
 
     // Map all matching flights so the user can choose
-    const mapped = flights.map(flight => ({
+    const mapped = flights.map(flight => {
+      const depTz = flight.departure?.timezone || null;
+      const arrTz = flight.arrival?.timezone || null;
+      // Store the raw local time for display purposes
+      const depLocalRaw = (flight.departure?.scheduled || '').replace(/[+-]\d{2}:\d{2}$/, '').replace('Z', '');
+      const arrLocalRaw = (flight.arrival?.scheduled || '').replace(/[+-]\d{2}:\d{2}$/, '').replace('Z', '');
+      return {
       callsign: `${flight.airline?.iata || airlineIata}${flight.flight?.number || flightNumber}`,
       carrier: flight.airline?.name || null,
       carrier_code: flight.airline?.iata || airlineIata,
@@ -41,25 +105,29 @@ async function lookupFlight(callsign, date) {
         code: flight.departure?.iata || null,
         airport: flight.departure?.airport || null,
         city: null,
-        scheduled: flight.departure?.scheduled || null,
-        actual: flight.departure?.actual || null,
+        scheduled: toUTC(flight.departure?.scheduled, depTz),
+        scheduled_local: depLocalRaw || null,
+        actual: toUTC(flight.departure?.actual, depTz),
         terminal: flight.departure?.terminal || null,
         gate: flight.departure?.gate || null,
+        timezone: depTz,
       },
       destination: {
         code: flight.arrival?.iata || null,
         airport: flight.arrival?.airport || null,
         city: null,
-        scheduled: flight.arrival?.scheduled || null,
-        actual: flight.arrival?.actual || null,
+        scheduled: toUTC(flight.arrival?.scheduled, arrTz),
+        scheduled_local: arrLocalRaw || null,
+        actual: toUTC(flight.arrival?.actual, arrTz),
         terminal: flight.arrival?.terminal || null,
         gate: flight.arrival?.gate || null,
+        timezone: arrTz,
       },
       aircraft: flight.aircraft?.registration || null,
       aircraft_type: flight.aircraft?.iata || null,
       status: flight.flight_status || null,
       flight_date: flight.flight_date || null,
-    }));
+    };});
 
     // Deduplicate by route+time (AviationStack sometimes returns duplicates)
     const seen = new Set();
