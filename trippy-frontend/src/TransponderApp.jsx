@@ -294,16 +294,23 @@ const C = {
 
 function getTripStatus(trip) { const now = new Date(), s = new Date(trip.start_date), e = new Date(trip.end_date); if (trip.legs?.some(l => isLegLive(l))) return "live"; if (now < s) return "upcoming"; if (now > e) return "completed"; return "active"; }
 function formatDateRange(s, e) { if (!s || !e) return ""; const sd = new Date(s + "T00:00:00"), ed = new Date(e + "T00:00:00"), o = { month: "short", day: "numeric" }; return `${sd.toLocaleDateString("en-US", o)} — ${ed.toLocaleDateString("en-US", o)}, ${ed.getFullYear()}`; }
-// Extract time directly from ISO string (preserves local airport time, avoids TZ conversion)
+// Format a time string for display. Prefers local time strings (no TZ conversion needed).
+// For UTC ISO strings (ending in Z), extracts HH:MM directly to avoid browser TZ issues.
 function formatTime(iso) {
   if (!iso) return "—";
-  // Parse as a proper Date and format in user's local timezone
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return "—";
-  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+  // If it's a local time string (no Z, no offset) — extract HH:MM directly
+  if (!iso.endsWith("Z") && !iso.match(/[+-]\d{2}:\d{2}$/)) {
+    const m = iso.match(/T(\d{2}):(\d{2})/);
+    if (m) { const h = parseInt(m[1]), min = m[2], ampm = h >= 12 ? "PM" : "AM", h12 = h % 12 || 12; return `${h12}:${min} ${ampm}`; }
+  }
+  // For UTC strings, extract the UTC HH:MM directly (don't let browser convert)
+  const m = iso.match(/T(\d{2}):(\d{2})/);
+  if (m) { const h = parseInt(m[1]), min = m[2], ampm = h >= 12 ? "PM" : "AM", h12 = h % 12 || 12; return `${h12}:${min} ${ampm}`; }
+  return "—";
 }
-function legDepartTime(leg) { return formatTime(leg.depart_time); }
-function legArriveTime(leg) { return formatTime(leg.arrive_time); }
+// Display local airport times when available (from API lookup), fall back to stored depart/arrive
+function legDepartTime(leg) { return formatTime(leg.metadata?.depart_local || leg.depart_time); }
+function legArriveTime(leg) { return formatTime(leg.metadata?.arrive_local || leg.arrive_time); }
 // Extract date directly from ISO string (avoids TZ shift)
 function formatDate(iso) {
   if (!iso) return "";
@@ -1356,7 +1363,7 @@ function FollowingTab({ following, setFollowing, fetchData, navigate, mode }) {
                   <div style={{ height: "100%", borderRadius: 2, background: "var(--accent-flight)", width: `${prog * 100}%` }} />
                 </div>
                 <p style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)" }}>
-                  Lands at {formatTime(activeLeg.arrive_time)} local {"\u00B7"} {Math.round(prog * 100)}%
+                  Lands at {formatTime(activeLeg.metadata?.arrive_local || activeLeg.arrive_time)} local {"\u00B7"} {Math.round(prog * 100)}%
                 </p>
               </div>
             );
@@ -1662,7 +1669,7 @@ function DashboardPage() {
                                 )}
                               </div>
                               <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)", letterSpacing: "0.5px" }}>
-                                {[liveLeg.carrier, liveLeg.vehicle_number, liveLeg.arrive_time ? `LANDS ${formatTime(liveLeg.arrive_time)}` : null].filter(Boolean).join(" · ")}
+                                {[liveLeg.carrier, liveLeg.vehicle_number, liveLeg.arrive_time ? `LANDS ${formatTime(liveLeg.metadata?.arrive_local || liveLeg.arrive_time)}` : null].filter(Boolean).join(" · ")}
                               </p>
                             </>
                           )}
@@ -1839,7 +1846,7 @@ function DashboardPage() {
                                 )}
                               </div>
                               <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)", letterSpacing: "0.5px" }}>
-                                {[liveLeg.carrier, liveLeg.vehicle_number, liveLeg.arrive_time ? `LANDS ${formatTime(liveLeg.arrive_time)}` : null].filter(Boolean).join(" · ")}
+                                {[liveLeg.carrier, liveLeg.vehicle_number, liveLeg.arrive_time ? `LANDS ${formatTime(liveLeg.metadata?.arrive_local || liveLeg.arrive_time)}` : null].filter(Boolean).join(" · ")}
                               </p>
                             </>
                           )}
@@ -2553,7 +2560,7 @@ function DetailPage({ tripId }) {
             <div className="border rounded" style={{ background: "var(--bg-surface)", borderColor: "var(--border-primary)" }}>
               <div className="flex border-b" style={{ borderColor: "var(--border-primary)" }}>{Object.entries(typeCfg).map(([k, v]) => <button key={k} onClick={() => { setBType(k); resetBuilder(); }} className="flex-1 py-2 text-xs font-bold tracking-widest relative" style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1px", color: bType === k ? v.color : "var(--text-secondary)", background: "transparent" }}>{v.label}{bType === k && <div className="absolute bottom-0 left-0 right-0 h-px" style={{ background: v.color }} />}</button>)}</div>
               <div className="p-3">
-                {bType === "flight" && (<><div className="flex flex-col sm:flex-row gap-2 mb-2"><div className="flex-1"><Label>CALLSIGN</Label><Input type="text" value={bFN} onChange={e => { setBFN(e.target.value); setBAF(null); setBErr(null); }} onKeyDown={e => e.key === "Enter" && handleQuery()} placeholder="DL484" style={{ textTransform: "uppercase", letterSpacing: "1px" }} /></div><div className="flex-1"><Label>DATE</Label><DatePicker value={bDt} onChange={setBDt} /></div><div className="flex items-end"><button onClick={handleQuery} disabled={bLoading || !bFN.trim()} className="w-full sm:w-auto px-4 py-2.5 rounded text-xs font-bold tracking-widest" style={{ background: bFN.trim() ? "var(--bg-surface)" : "var(--bg-surface)", color: bFN.trim() ? "var(--accent-flight)" : "var(--text-tertiary)", border: "1px solid var(--border-primary)", fontFamily: FONT, fontSize: "9px" }}>{bLoading ? <Spinner /> : "QUERY"}</button></div></div>{bAF && <div className="rounded border p-2.5 mb-2" style={{ background: "var(--bg-surface)", borderColor: "var(--accent-flight)" }}><div className="flex items-center gap-2 mb-1"><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--accent-flight)" }} /><span className="relative inline-flex rounded-full h-2 w-2" style={{ background: "var(--accent-flight)" }} /></span><span className="text-xs font-bold" style={{ color: "var(--accent-flight)", fontFamily: FONT, fontSize: "9px" }}>MATCH</span></div><div className="grid grid-cols-2 gap-x-4 gap-y-0.5">{[["CARRIER", bAF.carrier], ["ROUTE", `${bAF.origin.code} \u2192 ${bAF.destination.code}`], ["DEP", formatTime(bAF.origin.scheduled)], ["ARR", formatTime(bAF.destination.scheduled)]].map(([l, v]) => <div key={l} className="flex items-baseline gap-1.5"><span className="text-xs" style={{ color: "var(--text-secondary)", fontFamily: FONT, fontSize: "8px", minWidth: 40 }}>{l}</span><span className="text-xs" style={{ color: "var(--text-primary)", fontFamily: FONT }}>{v}</span></div>)}</div></div>}{bErr && <p className="mb-2 text-xs font-bold" style={{ color: "var(--accent-flight)", fontFamily: FONT, fontSize: "9px" }}>{bErr}</p>}{bFlightOptions && (<div className="mb-2"><p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--accent-flight)", marginBottom: 6 }}>{bFlightOptions.length} FLIGHTS FOUND — SELECT ONE</p><div style={{ display: "flex", flexDirection: "column", gap: 4 }}>{bFlightOptions.map((opt, i) => (<button key={i} onClick={() => selectFlightDetail(opt)} className="tappable-card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderRadius: 4, border: "1px solid var(--border-primary)", background: "var(--bg-surface)", cursor: "pointer", textAlign: "left" }}><span style={{ fontFamily: FONT, fontSize: "11px", fontWeight: 600, color: "var(--accent-flight-bright)" }}>{opt.origin.code} → {opt.destination.code}</span><span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{opt.origin.scheduled ? formatTime(opt.origin.scheduled) : "—"} → {opt.destination.scheduled ? formatTime(opt.destination.scheduled) : "—"}</span></button>))}</div></div>)}</>)}
+                {bType === "flight" && (<><div className="flex flex-col sm:flex-row gap-2 mb-2"><div className="flex-1"><Label>CALLSIGN</Label><Input type="text" value={bFN} onChange={e => { setBFN(e.target.value); setBAF(null); setBErr(null); }} onKeyDown={e => e.key === "Enter" && handleQuery()} placeholder="DL484" style={{ textTransform: "uppercase", letterSpacing: "1px" }} /></div><div className="flex-1"><Label>DATE</Label><DatePicker value={bDt} onChange={setBDt} /></div><div className="flex items-end"><button onClick={handleQuery} disabled={bLoading || !bFN.trim()} className="w-full sm:w-auto px-4 py-2.5 rounded text-xs font-bold tracking-widest" style={{ background: bFN.trim() ? "var(--bg-surface)" : "var(--bg-surface)", color: bFN.trim() ? "var(--accent-flight)" : "var(--text-tertiary)", border: "1px solid var(--border-primary)", fontFamily: FONT, fontSize: "9px" }}>{bLoading ? <Spinner /> : "QUERY"}</button></div></div>{bAF && <div className="rounded border p-2.5 mb-2" style={{ background: "var(--bg-surface)", borderColor: "var(--accent-flight)" }}><div className="flex items-center gap-2 mb-1"><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--accent-flight)" }} /><span className="relative inline-flex rounded-full h-2 w-2" style={{ background: "var(--accent-flight)" }} /></span><span className="text-xs font-bold" style={{ color: "var(--accent-flight)", fontFamily: FONT, fontSize: "9px" }}>MATCH</span></div><div className="grid grid-cols-2 gap-x-4 gap-y-0.5">{[["CARRIER", bAF.carrier], ["ROUTE", `${bAF.origin.code} \u2192 ${bAF.destination.code}`], ["DEP", formatTime(bAF.origin.scheduled_local || bAF.origin.scheduled)], ["ARR", formatTime(bAF.destination.scheduled_local || bAF.destination.scheduled)]].map(([l, v]) => <div key={l} className="flex items-baseline gap-1.5"><span className="text-xs" style={{ color: "var(--text-secondary)", fontFamily: FONT, fontSize: "8px", minWidth: 40 }}>{l}</span><span className="text-xs" style={{ color: "var(--text-primary)", fontFamily: FONT }}>{v}</span></div>)}</div></div>}{bErr && <p className="mb-2 text-xs font-bold" style={{ color: "var(--accent-flight)", fontFamily: FONT, fontSize: "9px" }}>{bErr}</p>}{bFlightOptions && (<div className="mb-2"><p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--accent-flight)", marginBottom: 6 }}>{bFlightOptions.length} FLIGHTS FOUND — SELECT ONE</p><div style={{ display: "flex", flexDirection: "column", gap: 4 }}>{bFlightOptions.map((opt, i) => (<button key={i} onClick={() => selectFlightDetail(opt)} className="tappable-card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderRadius: 4, border: "1px solid var(--border-primary)", background: "var(--bg-surface)", cursor: "pointer", textAlign: "left" }}><span style={{ fontFamily: FONT, fontSize: "11px", fontWeight: 600, color: "var(--accent-flight-bright)" }}>{opt.origin.code} → {opt.destination.code}</span><span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{opt.origin.scheduled ? formatTime(opt.origin.scheduled_local || opt.origin.scheduled) : "—"} → {opt.destination.scheduled ? formatTime(opt.destination.scheduled_local || opt.destination.scheduled) : "—"}</span></button>))}</div></div>)}</>)}
                 {bType === "hotel" && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><div className="sm:col-span-2"><Label>PROPERTY</Label><PlaceAutocomplete value={bHN} onChange={setBHN} onSelect={(p) => setBHPlace(p)} placeholder="Park Hyatt Tokyo" types="lodging" />{bHPlace && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{bHPlace.address}</p>}{bHPlace?.lat && <div className="mt-2"><MiniMap lat={bHPlace.lat} lng={bHPlace.lng} zoom={15} height={100} label={bHPlace.name || bHN} /></div>}</div><div><Label>CONF NO.</Label><Input value={bHC} onChange={e => setBHC(e.target.value)} placeholder="Optional" /></div><div style={{}}></div><div><Label>CHECK-IN</Label><DatePicker value={bHI} onChange={setBHI} /></div><div><Label>CHECK-OUT</Label><DatePicker value={bHO} onChange={setBHO} /></div></div>}
                 {bType === "train" && !bTrainManual && (<div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-2">
@@ -3161,7 +3168,7 @@ function CreatePage() {
                         <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", marginLeft: 10 }}>{opt.carrier}</span>
                       </div>
                       <div style={{ textAlign: "right" }}>
-                        <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-primary)" }}>{opt.origin.scheduled ? formatTime(opt.origin.scheduled) : "—"} → {opt.destination.scheduled ? formatTime(opt.destination.scheduled) : "—"}</span>
+                        <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-primary)" }}>{opt.origin.scheduled ? formatTime(opt.origin.scheduled_local || opt.origin.scheduled) : "—"} → {opt.destination.scheduled ? formatTime(opt.destination.scheduled_local || opt.destination.scheduled) : "—"}</span>
                         {opt.flight_date && <span style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)", marginLeft: 8 }}>{opt.flight_date}</span>}
                       </div>
                     </button>
@@ -3375,7 +3382,7 @@ function SharedPage({ tripId }) {
     if (presence.mode === "transit") {
       const liveLeg = trip.legs?.find(l => isLegLive(l));
       if (liveLeg) {
-        const arrTime = formatTime(liveLeg.arrive_time);
+        const arrTime = formatTime(liveLeg.metadata?.arrive_local || liveLeg.arrive_time);
         return { main: `Currently airborne. ${liveLeg.origin?.code || liveLeg.origin?.city} \u2192 ${liveLeg.destination?.code || liveLeg.destination?.city} \u00B7 ${liveLeg.carrier} ${liveLeg.vehicle_number || ""}`.trim(), sub: `Lands at ${arrTime} local.` };
       }
       return { main: presence.narrative, sub: "" };

@@ -342,6 +342,81 @@ const AIRPORTS_FALLBACK = {
   RAK: { lat: 31.6069, lng: -8.0363, city: 'Marrakech', name: 'Menara' },
 };
 
+/**
+ * IATA → IANA timezone map for local time conversion.
+ * Grouped by timezone for compactness.
+ */
+const TZ_MAP = Object.assign({},
+  // US Eastern
+  ...['ATL','BOS','BWI','CLE','CLT','CMH','DCA','DTW','EWR','FLL','IAD','IND','JAX','JFK','LGA','MCO','MIA','PHL','PIT','RSW','TPA'].map(c => ({[c]: 'America/New_York'})),
+  // US Central
+  ...['AUS','BNA','DFW','IAH','MCI','MDW','MKE','MSP','MSY','OMA','ORD','STL'].map(c => ({[c]: 'America/Chicago'})),
+  // US Mountain
+  ...['ABQ','DEN','SLC'].map(c => ({[c]: 'America/Denver'})),
+  // US Mountain (no DST)
+  {PHX: 'America/Phoenix'},
+  // US Pacific
+  ...['LAX','LAS','OAK','PDX','SAN','SEA','SFO','SJC','SMF'].map(c => ({[c]: 'America/Los_Angeles'})),
+  // US Other
+  {ANC: 'America/Anchorage', HNL: 'Pacific/Honolulu', RDU: 'America/New_York'},
+  // Canada
+  ...['YYZ','YUL','YOW','YHZ'].map(c => ({[c]: 'America/Toronto'})),
+  {YWG: 'America/Winnipeg', YYC: 'America/Edmonton', YEG: 'America/Edmonton', YVR: 'America/Vancouver'},
+  // Mexico/Central America/Caribbean
+  {MEX: 'America/Mexico_City', CUN: 'America/Cancun', GDL: 'America/Mexico_City', SJO: 'America/Costa_Rica', PTY: 'America/Panama', SJU: 'America/Puerto_Rico', NAS: 'America/Nassau', MBJ: 'America/Jamaica', PUJ: 'America/Santo_Domingo'},
+  // South America
+  {GRU: 'America/Sao_Paulo', GIG: 'America/Sao_Paulo', BSB: 'America/Sao_Paulo', CNF: 'America/Sao_Paulo', EZE: 'America/Argentina/Buenos_Aires', MVD: 'America/Montevideo', SCL: 'America/Santiago', BOG: 'America/Bogota', LIM: 'America/Lima', UIO: 'America/Guayaquil', CCS: 'America/Caracas', MDE: 'America/Bogota'},
+  // UK/Ireland
+  ...['LHR','LGW','STN','LTN','MAN','EDI','BHX','BRS','GLA','DUB','SNN'].map(c => ({[c]: 'Europe/London'})),
+  // Portugal
+  ...['LIS','OPO','FAO'].map(c => ({[c]: 'Europe/Lisbon'})),
+  // Western/Central Europe (CET)
+  ...['CDG','ORY','AMS','FRA','MUC','ZRH','BRU','VIE','GVA','DUS','HAM','CGN','TXL','BER','LUX','MAD','BCN','FCO','MXP','LIN','PMI','AGP','VLC','NAP','VCE','NCE','TLS','MRS','LYS','CPH','ARN','OSL','WAW','PRG','BUD','BEG','ZAG','KRK','TFS','LPA','IBZ','SPU','DBV','FLR','PSA','BGY','CTA','RAK','CMN','ALG','TUN'].map(c => ({[c]: 'Europe/Paris'})),
+  // Nordic adjustments
+  {HEL: 'Europe/Helsinki', TLL: 'Europe/Tallinn', RIX: 'Europe/Riga', VNO: 'Europe/Vilnius'},
+  // Eastern Europe
+  {OTP: 'Europe/Bucharest', SOF: 'Europe/Sofia', LED: 'Europe/Moscow', SVO: 'Europe/Moscow', DME: 'Europe/Moscow', SKG: 'Europe/Athens', HER: 'Europe/Athens', CFU: 'Europe/Athens', ATH: 'Europe/Athens'},
+  // Turkey
+  ...['IST','SAW','AYT','ADB','ESB'].map(c => ({[c]: 'Europe/Istanbul'})),
+  // Middle East
+  {DXB: 'Asia/Dubai', AUH: 'Asia/Dubai', DOH: 'Asia/Qatar', RUH: 'Asia/Riyadh', JED: 'Asia/Riyadh', TLV: 'Asia/Jerusalem', AMM: 'Asia/Amman', BAH: 'Asia/Bahrain', MCT: 'Asia/Muscat', KWI: 'Asia/Kuwait', BEY: 'Asia/Beirut', BGW: 'Asia/Baghdad'},
+  // Africa
+  {JNB: 'Africa/Johannesburg', CPT: 'Africa/Johannesburg', CAI: 'Africa/Cairo', ADD: 'Africa/Addis_Ababa', NBO: 'Africa/Nairobi', LOS: 'Africa/Lagos', DAR: 'Africa/Dar_es_Salaam', ACC: 'Africa/Accra', DKR: 'Africa/Dakar', DSS: 'Africa/Dakar', MRU: 'Indian/Mauritius', HRG: 'Africa/Cairo', SSH: 'Africa/Cairo'},
+  // South Asia
+  {DEL: 'Asia/Kolkata', BOM: 'Asia/Kolkata', BLR: 'Asia/Kolkata', MAA: 'Asia/Kolkata', CCU: 'Asia/Kolkata', HYD: 'Asia/Kolkata', COK: 'Asia/Kolkata', CMB: 'Asia/Colombo', DAC: 'Asia/Dhaka', KTM: 'Asia/Kathmandu', ISB: 'Asia/Karachi', KHI: 'Asia/Karachi', LHE: 'Asia/Karachi', MLE: 'Indian/Maldives'},
+  // Southeast Asia
+  {SIN: 'Asia/Singapore', BKK: 'Asia/Bangkok', DMK: 'Asia/Bangkok', KUL: 'Asia/Kuala_Lumpur', CGK: 'Asia/Jakarta', MNL: 'Asia/Manila', SGN: 'Asia/Ho_Chi_Minh', HAN: 'Asia/Ho_Chi_Minh', REP: 'Asia/Phnom_Penh', PNH: 'Asia/Phnom_Penh', RGN: 'Asia/Yangon', DPS: 'Asia/Makassar', HKT: 'Asia/Bangkok'},
+  // East Asia
+  ...['PEK','PKX','PVG','SHA','CAN','SZX','CTU','CKG','XIY','KMG','WUH','HGH','NKG','TAO','MFM'].map(c => ({[c]: 'Asia/Shanghai'})),
+  {HKG: 'Asia/Hong_Kong', NRT: 'Asia/Tokyo', HND: 'Asia/Tokyo', KIX: 'Asia/Tokyo', CTS: 'Asia/Tokyo', FUK: 'Asia/Tokyo', NGO: 'Asia/Tokyo', ICN: 'Asia/Seoul', GMP: 'Asia/Seoul', TPE: 'Asia/Taipei', TSA: 'Asia/Taipei'},
+  // Oceania
+  ...['SYD','MEL','BNE','CBR','OOL'].map(c => ({[c]: 'Australia/Sydney'})),
+  {PER: 'Australia/Perth', ADL: 'Australia/Adelaide', AKL: 'Pacific/Auckland', WLG: 'Pacific/Auckland', CHC: 'Pacific/Auckland', NAN: 'Pacific/Fiji', PPT: 'Pacific/Tahiti'},
+);
+
+/** Get IANA timezone for an IATA airport code */
+function getTimezone(iata) {
+  if (!iata) return null;
+  return TZ_MAP[iata.toUpperCase()] || null;
+}
+
+/** Convert a UTC ISO string to local time string in a given timezone */
+function utcToLocal(utcIso, timezone) {
+  if (!utcIso || !timezone) return null;
+  try {
+    const d = new Date(utcIso);
+    if (isNaN(d.getTime())) return null;
+    const parts = new Intl.DateTimeFormat('sv-SE', {
+      timeZone: timezone,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false,
+    }).formatToParts(d);
+    const p = (type) => parts.find(x => x.type === type)?.value;
+    return `${p('year')}-${p('month')}-${p('day')}T${p('hour')}:${p('minute')}:${p('second')}`;
+  } catch { return null; }
+}
+
 /** Look up airport info by IATA code — tries FR24 API first, falls back to static data */
 async function getAirport(iata) {
   const empty = { lat: null, lng: null, city: null, name: null };
@@ -431,6 +506,13 @@ async function lookupFlight(callsign, date) {
       const flightNum = f.flight || clean;
       const carrierPrefix = flightNum.replace(/\d+/g, '').trim() || null;
 
+      // Convert UTC times to local using airport timezones
+      const depUTC = f.datetime_takeoff ? ensureZ(f.datetime_takeoff) : null;
+      const origTZ = getTimezone(f.orig_iata);
+      const destTZ = getTimezone(f.dest_iata);
+      const depLocal = utcToLocal(depUTC, origTZ);
+      const arrLocal = utcToLocal(arrivalTime, destTZ);
+
       return {
         fr24_id: f.fr24_id || null,
         callsign: flightNum,
@@ -444,7 +526,8 @@ async function lookupFlight(callsign, date) {
           city: origAirport.city,
           lat: origAirport.lat,
           lng: origAirport.lng,
-          scheduled: f.datetime_takeoff ? ensureZ(f.datetime_takeoff) : null,
+          scheduled: depUTC,
+          scheduled_local: depLocal,
           terminal: null,
           gate: null,
         },
@@ -456,6 +539,7 @@ async function lookupFlight(callsign, date) {
           lat: destAirport.lat,
           lng: destAirport.lng,
           scheduled: arrivalTime,
+          scheduled_local: arrLocal,
           terminal: null,
           gate: null,
         },

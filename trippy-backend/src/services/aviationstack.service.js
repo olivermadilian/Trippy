@@ -1,6 +1,9 @@
 const axios = require('axios');
 
-const AVSTACK_BASE = 'https://api.aviationstack.com/v1';
+// AviationStack free tier only supports HTTP; paid plans support HTTPS
+const AVSTACK_BASE = process.env.AVIATIONSTACK_HTTPS === 'true'
+  ? 'https://api.aviationstack.com/v1'
+  : 'http://api.aviationstack.com/v1';
 
 /**
  * Convert a local time string + IANA timezone to a UTC ISO string.
