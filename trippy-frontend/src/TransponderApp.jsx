@@ -62,9 +62,9 @@ function mapTrip(t) {
 function mapFlightLookup(r) {
   return {
     carrier: r.carrier || r.carrier_code || null, carrier_code: r.carrier_code, callsign: r.callsign,
-    origin: { code: r.origin.code, airport: r.origin.airport, city: r.origin.city, scheduled: r.origin.scheduled },
-    destination: { code: r.destination.code, airport: r.destination.airport, city: r.destination.city, scheduled: r.destination.scheduled },
-    status: r.status, flight_date: r.flight_date,
+    origin: { code: r.origin.code, airport: r.origin.airport, city: r.origin.city, scheduled: r.origin.scheduled, scheduled_local: r.origin.scheduled_local || null, terminal: r.origin.terminal || null, gate: r.origin.gate || null },
+    destination: { code: r.destination.code, airport: r.destination.airport, city: r.destination.city, scheduled: r.destination.scheduled, scheduled_local: r.destination.scheduled_local || null, terminal: r.destination.terminal || null, gate: r.destination.gate || null },
+    status: r.status, flight_date: r.flight_date, source: r.source || null,
   };
 }
 function mapFlightResults(res) {
@@ -2363,7 +2363,7 @@ function DetailPage({ tripId }) {
 
   const addLeg = async () => {
     let newLeg;
-    if (bType === "flight" && bAF) { newLeg = { type: "flight", origin: { code: bAF.origin.code, city: bAF.origin.airport, lat: 0, lng: 0 }, destination: { code: bAF.destination.code, city: bAF.destination.airport, lat: 0, lng: 0 }, depart_time: bAF.origin.scheduled, arrive_time: bAF.destination.scheduled, carrier: bAF.carrier, vehicle_number: bAF.callsign, metadata: {} }; }
+    if (bType === "flight" && bAF) { newLeg = { type: "flight", origin: { code: bAF.origin.code, city: bAF.origin.airport, lat: 0, lng: 0 }, destination: { code: bAF.destination.code, city: bAF.destination.airport, lat: 0, lng: 0 }, depart_time: bAF.origin.scheduled, arrive_time: bAF.destination.scheduled, carrier: bAF.carrier, vehicle_number: bAF.callsign, metadata: { terminal: bAF.origin.terminal || null, gate: bAF.origin.gate || null, depart_local: bAF.origin.scheduled_local || null, arrive_local: bAF.destination.scheduled_local || null } }; }
     else if (bType === "hotel") { const nights = bHO ? Math.max(1, Math.round((new Date(bHO) - new Date(bHI)) / 86400000)) : 1; const hLat = bHPlace?.lat || 0; const hLng = bHPlace?.lng || 0; const hCity = bHPlace?.city || bHN; newLeg = { type: "hotel", origin: { code: null, city: hCity, lat: hLat, lng: hLng }, destination: { code: null, city: hCity, lat: hLat, lng: hLng }, depart_time: `${bHI}T15:00:00Z`, arrive_time: bHO ? `${bHO}T11:00:00Z` : `${bHI}T11:00:00Z`, carrier: bHN, vehicle_number: null, metadata: { nights, confirmation: bHC, address: bHPlace?.address || null } }; }
     else { const oLat = bOPlace?.lat || 0; const oLng = bOPlace?.lng || 0; const dLat = bDPlace?.lat || 0; const dLng = bDPlace?.lng || 0; const oCity = bOPlace?.city || bO; const dCity = bDPlace?.city || bD; newLeg = { type: bType, origin: { code: bO.slice(0, 3).toUpperCase(), city: oCity, lat: oLat, lng: oLng }, destination: { code: bD.slice(0, 3).toUpperCase(), city: dCity, lat: dLat, lng: dLng }, depart_time: `${bDt}T${bTm || "08:00"}:00Z`, arrive_time: `${bDt}T12:00:00Z`, carrier: bType === "train" ? "Train" : "Bus", vehicle_number: null, metadata: {} }; }
     try {
@@ -2724,8 +2724,9 @@ function CreatePage() {
     setBAF(af); setBFlightOptions(null);
     setFOrigin(af.origin.code || "");
     setFDest(af.destination.code || "");
-    const depLocal = af.origin.scheduled || "";
-    const arrLocal = af.destination.scheduled || "";
+    // Prefer local times from AviationStack for display; fall back to UTC from FR24
+    const depLocal = af.origin.scheduled_local || af.origin.scheduled || "";
+    const arrLocal = af.destination.scheduled_local || af.destination.scheduled || "";
     if (depLocal) { setFDepart(depLocal.substring(11, 16)); if (!fDate) setFDate(depLocal.substring(0, 10)); }
     if (arrLocal) { setFArrive(arrLocal.substring(11, 16)); setFArriveDate(arrLocal.substring(0, 10)); }
     setFCarrier(af.carrier || "");
@@ -2760,7 +2761,7 @@ function CreatePage() {
         depart_time: depTime,
         arrive_time: arrTime,
         carrier: fCarrier, vehicle_number: fFlightNo,
-        metadata: {},
+        metadata: bAF ? { terminal: bAF.origin.terminal || null, gate: bAF.origin.gate || null, depart_local: bAF.origin.scheduled_local || null, arrive_local: bAF.destination.scheduled_local || null } : {},
       };
     }
     if (bType === "hotel") {
