@@ -345,9 +345,10 @@ function isLegLive(leg, realTrackData) {
 }
 
 // Should we probe ADS-B for this leg? More aggressive than isLegLive —
-// checks a wide window around the scheduled flight time.
+// checks a wide window around the scheduled time for flights and trains.
 function shouldProbeTracking(leg) {
-  if (!leg || leg.type !== "flight" || !leg.vehicle_number) return false;
+  if (!leg || !leg.vehicle_number) return false;
+  if (leg.type !== "flight" && leg.type !== "train") return false;
   if (leg.status === "completed" || leg.status === "cancelled") return false;
   if (leg.status === "in_air" || leg.status === "in_transit") return true;
   if (!leg.depart_time || !leg.arrive_time) return false;
@@ -358,12 +359,23 @@ function shouldProbeTracking(leg) {
 
 function getLivePos(leg, realPosition) {
   if (!isLegLive(leg, realPosition)) return null;
-  // If we have real ADS-B data from FR24, use it
+  // If we have real tracking data (ADS-B for flights, API for trains), use it
   if (realPosition) {
-    const totalDist = d3.geoDistance([leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat]);
-    const coveredDist = d3.geoDistance([leg.origin.lng, leg.origin.lat], [realPosition.lng, realPosition.lat]);
-    const progress = totalDist > 0 ? Math.min(1, coveredDist / totalDist) : 0;
-    return { lng: realPosition.lng, lat: realPosition.lat, progress, altitude_ft: realPosition.altitude_ft, velocity_kts: realPosition.velocity_kts, heading: realPosition.heading, eta: realPosition.eta, isReal: true };
+    // For train tracking without GPS (SNCF/DB), we have delay info but no lat/lng
+    if (realPosition.lat != null && realPosition.lng != null) {
+      const totalDist = d3.geoDistance([leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat]);
+      const coveredDist = d3.geoDistance([leg.origin.lng, leg.origin.lat], [realPosition.lng, realPosition.lat]);
+      const progress = totalDist > 0 ? Math.min(1, coveredDist / totalDist) : 0;
+      return { lng: realPosition.lng, lat: realPosition.lat, progress, altitude_ft: realPosition.altitude_ft, velocity_kts: realPosition.velocity_kts, velocity: realPosition.velocity, heading: realPosition.heading, eta: realPosition.eta || realPosition.estimated_arrival, delay_minutes: realPosition.delay_minutes, isReal: true };
+    }
+    // Train with delay info but no GPS — use estimated position + delay data
+    if (realPosition.delay_minutes != null || realPosition.estimated_arrival) {
+      const dep = new Date(leg.actual_depart || leg.depart_time).getTime(), arr = new Date(realPosition.estimated_arrival || leg.arrive_time).getTime();
+      const rawProg = (arr > dep) ? (Date.now() - dep) / (arr - dep) : 0;
+      const prog = Math.max(0, Math.min(0.95, rawProg));
+      const pos = d3.geoInterpolate([leg.origin.lng, leg.origin.lat], [leg.destination.lng, leg.destination.lat])(prog);
+      return { lng: pos[0], lat: pos[1], progress: prog, delay_minutes: realPosition.delay_minutes, estimated_arrival: realPosition.estimated_arrival, isReal: true };
+    }
   }
   // Fallback to estimated position based on departure/arrival times
   const dep = new Date(leg.actual_depart || leg.depart_time).getTime(), arr = new Date(leg.arrive_time).getTime();
@@ -377,20 +389,23 @@ function getLivePos(leg, realPosition) {
 function useLiveTracking(leg) {
   const [liveData, setLiveData] = useState(null);
   useEffect(() => {
-    // Use shouldProbeTracking (wider window) to decide whether to poll FR24
     if (!shouldProbeTracking(leg)) { setLiveData(null); return; }
-    const callsign = leg.vehicle_number;
     let active = true;
     const poll = async () => {
       try {
-        const res = await api(`/flights/track/${encodeURIComponent(callsign)}`);
+        let res;
+        if (leg.type === "train" && leg.metadata?.operator) {
+          res = await api(`/trains/track/${encodeURIComponent(leg.metadata.operator)}/${encodeURIComponent(leg.vehicle_number)}`);
+        } else if (leg.type === "flight") {
+          res = await api(`/flights/track/${encodeURIComponent(leg.vehicle_number)}`);
+        } else { return; }
         if (active && res.tracking && res.position) { setLiveData(res.position); } else if (active) { setLiveData(null); }
       } catch { if (active) setLiveData(null); }
     };
     poll();
     const interval = setInterval(poll, 30000);
     return () => { active = false; clearInterval(interval); };
-  }, [leg?.id, leg?.status, leg?.vehicle_number]);
+  }, [leg?.id, leg?.status, leg?.vehicle_number, leg?.type, leg?.metadata?.operator]);
   return liveData;
 }
 
@@ -2321,6 +2336,11 @@ function DetailPage({ tripId }) {
   const [bHPlace, setBHPlace] = useState(null); // { lat, lng, city, address }
   const [bO, setBO] = useState(""); const [bD, setBD] = useState(""); const [bDt, setBDt] = useState(""); const [bTm, setBTm] = useState("");
   const [bOPlace, setBOPlace] = useState(null); const [bDPlace, setBDPlace] = useState(null);
+  // Train lookup (detail page)
+  const [bTrainOp, setBTrainOp] = useState("amtrak"); const [bTrainNum, setBTrainNum] = useState("");
+  const [bTrainLoading, setBTrainLoading] = useState(false); const [bTrainResult, setBTrainResult] = useState(null);
+  const [bTrainErr, setBTrainErr] = useState(null); const [bTrainOptions, setBTrainOptions] = useState(null);
+  const [bTrainManual, setBTrainManual] = useState(false);
   const resetBuilder = () => {
     const sd = trip?.start_date || "", ed = trip?.end_date || "";
     let defDate = sd;
@@ -2330,6 +2350,7 @@ function DetailPage({ tripId }) {
       if (endIso) { const d = new Date(endIso.split("T")[0]); d.setDate(d.getDate() + 1); defDate = d.toISOString().split("T")[0]; }
     }
     setBFN(""); setBLoading(false); setBAF(null); setBErr(null); setBFlightOptions(null); setBHN(""); setBHC(""); setBHI(defDate || sd); setBHO(ed); setBHPlace(null); setBO(""); setBD(""); setBDt(defDate || sd); setBTm(""); setBOPlace(null); setBDPlace(null);
+    setBTrainOp("amtrak"); setBTrainNum(""); setBTrainLoading(false); setBTrainResult(null); setBTrainErr(null); setBTrainOptions(null); setBTrainManual(false);
   };
   const typeCfg = { flight: { label: "FLIGHT", color: "var(--strip-flight)" }, hotel: { label: "GROUND STOP", color: "var(--strip-hotel)" }, train: { label: "TRAIN", color: "var(--strip-train)" }, bus: { label: "BUS", color: "var(--strip-bus)" } };
 
@@ -2359,13 +2380,41 @@ function DetailPage({ tripId }) {
   const [queryDisabled, setQueryDisabled] = useState(false);
   const selectFlightDetail = (af) => { setBAF(af); setBFlightOptions(null); };
   const handleQuery = async () => { if (!bFN.trim() || queryDisabled) return; setBLoading(true); setBErr(null); setBAF(null); setBFlightOptions(null); try { const r = await api(`/flights/lookup?callsign=${bFN.trim().toUpperCase()}${bDt ? `&date=${bDt}` : ""}`); const results = mapFlightResults(r); if (results.length === 1) { setBAF(results[0]); } else if (results.length > 1) { setBFlightOptions(results); } else { setBErr("NO MATCH \u2014 verify callsign"); } } catch (e) { if (e?.message?.includes("429") || e?.message?.toLowerCase().includes("rate")) { setBErr("STAND BY \u2014 too many lookups. Try again in a moment."); setQueryDisabled(true); setTimeout(() => setQueryDisabled(false), 10000); } else { setBErr("NO MATCH \u2014 verify callsign"); } } setBLoading(false); };
-  const canConfirm = () => { if (bType === "flight") return !!bAF; if (bType === "hotel") return bHN.trim() && bHI; return bO.trim() && bD.trim() && bDt; };
+  const DETAIL_TRAIN_OPS = [
+    { id: "amtrak", name: "Amtrak", country: "US", placeholder: "91" },
+    { id: "sncf", name: "SNCF", country: "FR", placeholder: "6213" },
+    { id: "db", name: "Deutsche Bahn", country: "DE", placeholder: "ICE 123" },
+  ];
+  const selectTrainDetail = (train) => { setBTrainResult(train); setBTrainOptions(null); };
+  const handleTrainQueryDetail = async () => {
+    if (!bTrainNum.trim() || bTrainLoading) return;
+    setBTrainLoading(true); setBTrainErr(null); setBTrainResult(null); setBTrainOptions(null);
+    try {
+      const r = await api(`/trains/lookup?operator=${bTrainOp}&number=${encodeURIComponent(bTrainNum.trim())}${bDt ? `&date=${bDt}` : ""}`);
+      const results = r.trains || [];
+      if (results.length === 1) { setBTrainResult(results[0]); }
+      else if (results.length > 1) { setBTrainOptions(results); }
+      else { setBTrainErr("No matching train found"); }
+    } catch (e) {
+      const msg = e?.message || "";
+      if (msg.includes("429")) { setBTrainErr("STAND BY — too many lookups"); }
+      else { setBTrainErr("Train not found — verify number"); }
+    }
+    setBTrainLoading(false);
+  };
+  const canConfirm = () => {
+    if (bType === "flight") return !!bAF;
+    if (bType === "hotel") return bHN.trim() && bHI;
+    if (bType === "train" && !bTrainManual) return !!bTrainResult;
+    return bO.trim() && bD.trim() && bDt;
+  };
 
   const addLeg = async () => {
     let newLeg;
     if (bType === "flight" && bAF) { newLeg = { type: "flight", origin: { code: bAF.origin.code, city: bAF.origin.airport, lat: 0, lng: 0 }, destination: { code: bAF.destination.code, city: bAF.destination.airport, lat: 0, lng: 0 }, depart_time: bAF.origin.scheduled, arrive_time: bAF.destination.scheduled, carrier: bAF.carrier, vehicle_number: bAF.callsign, metadata: { terminal: bAF.origin.terminal || null, gate: bAF.origin.gate || null, depart_local: bAF.origin.scheduled_local || null, arrive_local: bAF.destination.scheduled_local || null } }; }
     else if (bType === "hotel") { const nights = bHO ? Math.max(1, Math.round((new Date(bHO) - new Date(bHI)) / 86400000)) : 1; const hLat = bHPlace?.lat || 0; const hLng = bHPlace?.lng || 0; const hCity = bHPlace?.city || bHN; newLeg = { type: "hotel", origin: { code: null, city: hCity, lat: hLat, lng: hLng }, destination: { code: null, city: hCity, lat: hLat, lng: hLng }, depart_time: `${bHI}T15:00:00Z`, arrive_time: bHO ? `${bHO}T11:00:00Z` : `${bHI}T11:00:00Z`, carrier: bHN, vehicle_number: null, metadata: { nights, confirmation: bHC, address: bHPlace?.address || null } }; }
-    else { const oLat = bOPlace?.lat || 0; const oLng = bOPlace?.lng || 0; const dLat = bDPlace?.lat || 0; const dLng = bDPlace?.lng || 0; const oCity = bOPlace?.city || bO; const dCity = bDPlace?.city || bD; newLeg = { type: bType, origin: { code: bO.slice(0, 3).toUpperCase(), city: oCity, lat: oLat, lng: oLng }, destination: { code: bD.slice(0, 3).toUpperCase(), city: dCity, lat: dLat, lng: dLng }, depart_time: `${bDt}T${bTm || "08:00"}:00Z`, arrive_time: `${bDt}T12:00:00Z`, carrier: bType === "train" ? "Train" : "Bus", vehicle_number: null, metadata: {} }; }
+    else if (bType === "train" && bTrainResult) { const tr = bTrainResult; newLeg = { type: "train", origin: { code: (tr.origin.name || "").slice(0, 3).toUpperCase(), city: tr.origin.name, lat: tr.origin.lat || 0, lng: tr.origin.lng || 0 }, destination: { code: (tr.destination.name || "").slice(0, 3).toUpperCase(), city: tr.destination.name, lat: tr.destination.lat || 0, lng: tr.destination.lng || 0 }, depart_time: tr.origin.scheduled_departure, arrive_time: tr.destination.scheduled_arrival, carrier: tr.operator_name || bTrainOp, vehicle_number: tr.train_number, metadata: { operator: tr.operator, route_name: tr.route_name, platform: tr.origin.platform } }; }
+    else { const oLat = bOPlace?.lat || 0; const oLng = bOPlace?.lng || 0; const dLat = bDPlace?.lat || 0; const dLng = bDPlace?.lng || 0; const oCity = bOPlace?.city || bO; const dCity = bDPlace?.city || bD; newLeg = { type: bType, origin: { code: bO.slice(0, 3).toUpperCase(), city: oCity, lat: oLat, lng: oLng }, destination: { code: bD.slice(0, 3).toUpperCase(), city: dCity, lat: dLat, lng: dLng }, depart_time: `${bDt}T${bTm || "08:00"}:00Z`, arrive_time: `${bDt}T12:00:00Z`, carrier: bType === "train" ? "Train" : "Bus", vehicle_number: null, metadata: bType === "train" ? { operator: bTrainOp } : {} }; }
     try {
       const created = await api(`/trips/${trip.id}/legs`, { method: "POST", body: JSON.stringify(legToApi(newLeg)) });
       const mapped = created.origin ? created : mapLeg(created);
@@ -2468,6 +2517,13 @@ function DetailPage({ tripId }) {
                               {livePos.heading != null && <span style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)" }}>HDG {Math.round(livePos.heading)}&deg;</span>}
                             </div>
                           )}
+                          {livePos.isReal && livePos.delay_minutes != null && !livePos.altitude_ft && (
+                            <div className="flex gap-3 mt-1">
+                              <span style={{ fontFamily: FONT, fontSize: "8px", color: livePos.delay_minutes > 0 ? "var(--accent-countdown)" : "var(--accent-flight)" }}>{livePos.delay_minutes > 0 ? `+${livePos.delay_minutes} MIN DELAY` : "ON TIME"}</span>
+                              {livePos.velocity && <span style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)" }}>{livePos.velocity} MPH</span>}
+                              {livePos.estimated_arrival && <span style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)" }}>ETA {formatTime(livePos.estimated_arrival)}</span>}
+                            </div>
+                          )}
                         </div>
                       ) : null;
                     })()}
@@ -2499,7 +2555,20 @@ function DetailPage({ tripId }) {
               <div className="p-3">
                 {bType === "flight" && (<><div className="flex flex-col sm:flex-row gap-2 mb-2"><div className="flex-1"><Label>CALLSIGN</Label><Input type="text" value={bFN} onChange={e => { setBFN(e.target.value); setBAF(null); setBErr(null); }} onKeyDown={e => e.key === "Enter" && handleQuery()} placeholder="DL484" style={{ textTransform: "uppercase", letterSpacing: "1px" }} /></div><div className="flex-1"><Label>DATE</Label><DatePicker value={bDt} onChange={setBDt} /></div><div className="flex items-end"><button onClick={handleQuery} disabled={bLoading || !bFN.trim()} className="w-full sm:w-auto px-4 py-2.5 rounded text-xs font-bold tracking-widest" style={{ background: bFN.trim() ? "var(--bg-surface)" : "var(--bg-surface)", color: bFN.trim() ? "var(--accent-flight)" : "var(--text-tertiary)", border: "1px solid var(--border-primary)", fontFamily: FONT, fontSize: "9px" }}>{bLoading ? <Spinner /> : "QUERY"}</button></div></div>{bAF && <div className="rounded border p-2.5 mb-2" style={{ background: "var(--bg-surface)", borderColor: "var(--accent-flight)" }}><div className="flex items-center gap-2 mb-1"><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--accent-flight)" }} /><span className="relative inline-flex rounded-full h-2 w-2" style={{ background: "var(--accent-flight)" }} /></span><span className="text-xs font-bold" style={{ color: "var(--accent-flight)", fontFamily: FONT, fontSize: "9px" }}>MATCH</span></div><div className="grid grid-cols-2 gap-x-4 gap-y-0.5">{[["CARRIER", bAF.carrier], ["ROUTE", `${bAF.origin.code} \u2192 ${bAF.destination.code}`], ["DEP", formatTime(bAF.origin.scheduled)], ["ARR", formatTime(bAF.destination.scheduled)]].map(([l, v]) => <div key={l} className="flex items-baseline gap-1.5"><span className="text-xs" style={{ color: "var(--text-secondary)", fontFamily: FONT, fontSize: "8px", minWidth: 40 }}>{l}</span><span className="text-xs" style={{ color: "var(--text-primary)", fontFamily: FONT }}>{v}</span></div>)}</div></div>}{bErr && <p className="mb-2 text-xs font-bold" style={{ color: "var(--accent-flight)", fontFamily: FONT, fontSize: "9px" }}>{bErr}</p>}{bFlightOptions && (<div className="mb-2"><p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--accent-flight)", marginBottom: 6 }}>{bFlightOptions.length} FLIGHTS FOUND — SELECT ONE</p><div style={{ display: "flex", flexDirection: "column", gap: 4 }}>{bFlightOptions.map((opt, i) => (<button key={i} onClick={() => selectFlightDetail(opt)} className="tappable-card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderRadius: 4, border: "1px solid var(--border-primary)", background: "var(--bg-surface)", cursor: "pointer", textAlign: "left" }}><span style={{ fontFamily: FONT, fontSize: "11px", fontWeight: 600, color: "var(--accent-flight-bright)" }}>{opt.origin.code} → {opt.destination.code}</span><span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{opt.origin.scheduled ? formatTime(opt.origin.scheduled) : "—"} → {opt.destination.scheduled ? formatTime(opt.destination.scheduled) : "—"}</span></button>))}</div></div>)}</>)}
                 {bType === "hotel" && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><div className="sm:col-span-2"><Label>PROPERTY</Label><PlaceAutocomplete value={bHN} onChange={setBHN} onSelect={(p) => setBHPlace(p)} placeholder="Park Hyatt Tokyo" types="lodging" />{bHPlace && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{bHPlace.address}</p>}{bHPlace?.lat && <div className="mt-2"><MiniMap lat={bHPlace.lat} lng={bHPlace.lng} zoom={15} height={100} label={bHPlace.name || bHN} /></div>}</div><div><Label>CONF NO.</Label><Input value={bHC} onChange={e => setBHC(e.target.value)} placeholder="Optional" /></div><div style={{}}></div><div><Label>CHECK-IN</Label><DatePicker value={bHI} onChange={setBHI} /></div><div><Label>CHECK-OUT</Label><DatePicker value={bHO} onChange={setBHO} /></div></div>}
-                {(bType === "train" || bType === "bus") && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><div><Label>ORIGIN</Label><PlaceAutocomplete value={bO} onChange={setBO} onSelect={(p) => setBOPlace(p)} placeholder="Penn Station, NYC" types="transit_station|train_station|locality" />{bOPlace && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{bOPlace.address}</p>}</div><div><Label>DEST</Label><PlaceAutocomplete value={bD} onChange={setBD} onSelect={(p) => setBDPlace(p)} placeholder="Union Station, DC" types="transit_station|train_station|locality" />{bDPlace && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{bDPlace.address}</p>}</div><div><Label>DATE</Label><DatePicker value={bDt} onChange={setBDt} /></div><div><Label>TIME (OPT)</Label><Input type="time" value={bTm} onChange={e => setBTm(e.target.value)} /></div></div>}
+                {bType === "train" && !bTrainManual && (<div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-2">
+                    <div><Label>OPERATOR</Label><select value={bTrainOp} onChange={e => { setBTrainOp(e.target.value); setBTrainResult(null); setBTrainErr(null); setBTrainOptions(null); }} className="w-full px-2.5 py-2 rounded border text-xs" style={{ background: "var(--bg-card)", borderColor: "var(--border-primary)", color: "var(--text-primary)", fontFamily: FONT, fontSize: "11px" }}>{DETAIL_TRAIN_OPS.map(op => <option key={op.id} value={op.id}>{op.name} ({op.country})</option>)}</select></div>
+                    <div><Label>TRAIN NO.</Label><Input type="text" value={bTrainNum} onChange={e => { setBTrainNum(e.target.value); setBTrainResult(null); setBTrainErr(null); }} onKeyDown={e => e.key === "Enter" && handleTrainQueryDetail()} placeholder={DETAIL_TRAIN_OPS.find(o => o.id === bTrainOp)?.placeholder || "123"} style={{ textTransform: "uppercase", letterSpacing: "1px" }} /></div>
+                    <div className="flex items-end"><button onClick={handleTrainQueryDetail} disabled={bTrainLoading || !bTrainNum.trim()} className="w-full px-4 py-2.5 rounded text-xs font-bold tracking-widest" style={{ border: "1px solid var(--border-primary)", background: "var(--bg-surface)", color: bTrainNum.trim() ? "var(--strip-train)" : "var(--text-tertiary)", fontFamily: FONT, fontSize: "9px" }}>{bTrainLoading ? <Spinner /> : "QUERY"}</button></div>
+                  </div>
+                  <div className="mb-2"><Label>DATE</Label><DatePicker value={bDt} onChange={setBDt} /></div>
+                  {bTrainErr && <p className="mb-2 text-xs font-bold" style={{ color: "var(--strip-train)", fontFamily: FONT, fontSize: "9px" }}>{bTrainErr}</p>}
+                  {bTrainOptions && (<div className="mb-2"><p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--strip-train)", marginBottom: 6 }}>{bTrainOptions.length} TRAINS FOUND — SELECT ONE</p><div style={{ display: "flex", flexDirection: "column", gap: 4 }}>{bTrainOptions.map((opt, i) => (<button key={i} onClick={() => selectTrainDetail(opt)} className="tappable-card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderRadius: 4, border: "1px solid var(--border-primary)", background: "var(--bg-surface)", cursor: "pointer", textAlign: "left" }}><span style={{ fontFamily: FONT, fontSize: "11px", fontWeight: 600, color: "var(--strip-train)" }}>{opt.origin.name?.split(" ")[0] || "?"} → {opt.destination.name?.split(" ")[0] || "?"}</span><span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{opt.route_name || opt.train_number}</span></button>))}</div></div>)}
+                  {bTrainResult && (<div className="rounded border p-2.5 mb-2" style={{ background: "var(--bg-surface)", borderColor: "var(--strip-train)" }}><div className="flex items-center gap-2 mb-1"><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--strip-train)" }} /><span className="relative inline-flex rounded-full h-2 w-2" style={{ background: "var(--strip-train)" }} /></span><span className="text-xs font-bold" style={{ color: "var(--strip-train)", fontFamily: FONT, fontSize: "9px" }}>MATCH</span></div><div className="grid grid-cols-2 gap-x-4 gap-y-0.5">{[["ROUTE", `${bTrainResult.origin.name?.split(",")[0] || "?"} → ${bTrainResult.destination.name?.split(",")[0] || "?"}`], ["TRAIN", bTrainResult.route_name || bTrainResult.train_number], ["DEP", bTrainResult.origin.scheduled_departure ? formatTime(bTrainResult.origin.scheduled_departure) : "—"], ["ARR", bTrainResult.destination.scheduled_arrival ? formatTime(bTrainResult.destination.scheduled_arrival) : "—"]].map(([l, v]) => <div key={l} className="flex items-baseline gap-1.5"><span className="text-xs" style={{ color: "var(--text-secondary)", fontFamily: FONT, fontSize: "8px", minWidth: 40 }}>{l}</span><span className="text-xs" style={{ color: "var(--text-primary)", fontFamily: FONT }}>{v}</span></div>)}</div>{bTrainResult.origin.platform && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)" }}>PLATFORM {bTrainResult.origin.platform}</p>}{bTrainResult.delay_minutes > 0 && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "8px", color: "var(--accent-countdown)" }}>+{bTrainResult.delay_minutes} MIN DELAY</p>}</div>)}
+                  <button onClick={() => setBTrainManual(true)} style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "1px", color: "var(--text-tertiary)", background: "none", border: "none", cursor: "pointer", padding: "4px 0", textDecoration: "underline" }}>ENTER MANUALLY</button>
+                </div>)}
+                {bType === "train" && bTrainManual && (<div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><div><Label>ORIGIN</Label><PlaceAutocomplete value={bO} onChange={setBO} onSelect={(p) => setBOPlace(p)} placeholder="Penn Station, NYC" types="transit_station|train_station|locality" />{bOPlace && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{bOPlace.address}</p>}</div><div><Label>DEST</Label><PlaceAutocomplete value={bD} onChange={setBD} onSelect={(p) => setBDPlace(p)} placeholder="Union Station, DC" types="transit_station|train_station|locality" />{bDPlace && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{bDPlace.address}</p>}</div><div><Label>DATE</Label><DatePicker value={bDt} onChange={setBDt} /></div><div><Label>TIME (OPT)</Label><Input type="time" value={bTm} onChange={e => setBTm(e.target.value)} /></div><div className="sm:col-span-2"><button onClick={() => setBTrainManual(false)} style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "1px", color: "var(--text-tertiary)", background: "none", border: "none", cursor: "pointer", padding: "4px 0", textDecoration: "underline" }}>LOOK UP TRAIN</button></div></div>)}
+                {bType === "bus" && <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><div><Label>ORIGIN</Label><PlaceAutocomplete value={bO} onChange={setBO} onSelect={(p) => setBOPlace(p)} placeholder="Port Authority, NYC" types="transit_station|bus_station|locality" />{bOPlace && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{bOPlace.address}</p>}</div><div><Label>DEST</Label><PlaceAutocomplete value={bD} onChange={setBD} onSelect={(p) => setBDPlace(p)} placeholder="South Station, Boston" types="transit_station|bus_station|locality" />{bDPlace && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{bDPlace.address}</p>}</div><div><Label>DATE</Label><DatePicker value={bDt} onChange={setBDt} /></div><div><Label>TIME (OPT)</Label><Input type="time" value={bTm} onChange={e => setBTm(e.target.value)} /></div></div>}
                 <div className="flex items-center justify-between mt-3 pt-3 pb-1" style={{ borderTop: "1px solid var(--border-primary)", position: "sticky", bottom: 0, background: "var(--bg-surface)", zIndex: 2 }}><button onClick={() => { setShowLegBuilder(false); resetBuilder(); }} className="px-4 py-3 rounded text-xs font-bold tracking-widest" style={{ color: "var(--text-secondary)", fontFamily: FONT, fontSize: "10px" }}>CANCEL</button><button onClick={addLeg} disabled={!canConfirm()} className="px-6 py-3 rounded text-xs font-bold tracking-widest" style={{ background: canConfirm() ? "var(--accent-flight)" : "var(--bg-surface)", color: canConfirm() ? "var(--bg-primary)" : "var(--text-tertiary)", fontFamily: FONT, fontSize: "10px" }}>ADD LEG</button></div>
               </div>
             </div>
@@ -2672,6 +2741,14 @@ function CreatePage() {
   const [tDepart, setTDepart] = useState(""); const [tArrive, setTArrive] = useState("");
   const [tOperator, setTOperator] = useState(""); const [tNumber, setTNumber] = useState("");
   const [tDate, setTDate] = useState("");
+  // Train lookup
+  const [tLookupOperator, setTLookupOperator] = useState("amtrak");
+  const [tLookupNumber, setTLookupNumber] = useState("");
+  const [tLookupLoading, setTLookupLoading] = useState(false);
+  const [tLookupResult, setTLookupResult] = useState(null);
+  const [tLookupError, setTLookupError] = useState(null);
+  const [tLookupOptions, setTLookupOptions] = useState(null);
+  const [tManualMode, setTManualMode] = useState(false);
 
   // Validation
   const [valErrors, setValErrors] = useState([]);
@@ -2715,6 +2792,7 @@ function CreatePage() {
     setFOrigin(""); setFDest(""); setFDepart(""); setFArrive(""); setFCarrier(""); setFFlightNo(""); setFDate(defDate); setFArriveDate("");
     setHName(""); setHPlace(null); setHCheckIn(defDate); setHCheckOut(tripEnd || ""); setHLocation("");
     setTOrigin(""); setTDest(""); setTOPlace(null); setTDPlace(null); setTDepart(""); setTArrive(""); setTOperator(""); setTNumber(""); setTDate(defDate);
+    setTLookupOperator("amtrak"); setTLookupNumber(""); setTLookupLoading(false); setTLookupResult(null); setTLookupError(null); setTLookupOptions(null); setTManualMode(false);
     setValErrors([]);
   };
 
@@ -2746,6 +2824,39 @@ function CreatePage() {
       else { setBErr("Flight not found \u2014 try another callsign or enter manually"); }
     }
     setBLoading(false);
+  };
+
+  // Train lookup
+  const TRAIN_OPERATORS = [
+    { id: "amtrak", name: "Amtrak", country: "US", placeholder: "91" },
+    { id: "sncf", name: "SNCF", country: "FR", placeholder: "6213" },
+    { id: "db", name: "Deutsche Bahn", country: "DE", placeholder: "ICE 123" },
+  ];
+  const selectTrain = (train) => {
+    setTLookupResult(train); setTLookupOptions(null);
+    setTOrigin(train.origin.name || ""); setTDest(train.destination.name || "");
+    setTOPlace(train.origin.lat ? { lat: train.origin.lat, lng: train.origin.lng, city: train.origin.name } : null);
+    setTDPlace(train.destination.lat ? { lat: train.destination.lat, lng: train.destination.lng, city: train.destination.name } : null);
+    if (train.origin.scheduled_departure) { setTDepart(train.origin.scheduled_departure.substring(11, 16)); if (!tDate) setTDate(train.origin.scheduled_departure.substring(0, 10)); }
+    if (train.destination.scheduled_arrival) { setTArrive(train.destination.scheduled_arrival.substring(11, 16)); }
+    setTOperator(train.operator_name || tLookupOperator);
+    setTNumber(train.train_number || "");
+  };
+  const handleTrainQuery = async () => {
+    if (!tLookupNumber.trim() || tLookupLoading) return;
+    setTLookupLoading(true); setTLookupError(null); setTLookupResult(null); setTLookupOptions(null);
+    try {
+      const r = await api(`/trains/lookup?operator=${tLookupOperator}&number=${encodeURIComponent(tLookupNumber.trim())}${tDate ? `&date=${tDate}` : ""}`);
+      const results = r.trains || [];
+      if (results.length === 1) { selectTrain(results[0]); }
+      else if (results.length > 1) { setTLookupOptions(results); }
+      else { setTLookupError("No matching train found — try another number or enter manually"); }
+    } catch (e) {
+      const msg = e?.message || "";
+      if (msg.includes("429") || msg.toLowerCase().includes("rate")) { setTLookupError("STAND BY — too many lookups"); }
+      else { setTLookupError("Train not found — verify number or enter manually"); }
+    }
+    setTLookupLoading(false);
   };
 
   // Build a leg object from current builder state
@@ -2780,14 +2891,17 @@ function CreatePage() {
     // train or bus
     const oLat = tOPlace?.lat || 0; const oLng = tOPlace?.lng || 0;
     const dLat = tDPlace?.lat || 0; const dLng = tDPlace?.lng || 0;
+    // For trains with lookup results, use API times if available
+    const trainDepTime = tLookupResult?.origin?.scheduled_departure || (tDate && tDepart ? `${tDate}T${tDepart}:00Z` : (tDate ? `${tDate}T08:00:00Z` : null));
+    const trainArrTime = tLookupResult?.destination?.scheduled_arrival || (tDate && tArrive ? `${tDate}T${tArrive}:00Z` : (tDate ? `${tDate}T12:00:00Z` : null));
     return {
       type: bType,
       origin: { code: tOrigin.slice(0, 3).toUpperCase(), city: tOPlace?.city || tOrigin, lat: oLat, lng: oLng },
       destination: { code: tDest.slice(0, 3).toUpperCase(), city: tDPlace?.city || tDest, lat: dLat, lng: dLng },
-      depart_time: tDate && tDepart ? `${tDate}T${tDepart}:00Z` : (tDate ? `${tDate}T08:00:00Z` : null),
-      arrive_time: tDate && tArrive ? `${tDate}T${tArrive}:00Z` : (tDate ? `${tDate}T12:00:00Z` : null),
+      depart_time: bType === "train" ? trainDepTime : (tDate && tDepart ? `${tDate}T${tDepart}:00Z` : (tDate ? `${tDate}T08:00:00Z` : null)),
+      arrive_time: bType === "train" ? trainArrTime : (tDate && tArrive ? `${tDate}T${tArrive}:00Z` : (tDate ? `${tDate}T12:00:00Z` : null)),
       carrier: tOperator || (bType === "train" ? "Train" : "Bus"), vehicle_number: tNumber || null,
-      metadata: {},
+      metadata: bType === "train" && tLookupResult ? { operator: tLookupResult.operator, route_name: tLookupResult.route_name, platform: tLookupResult.origin?.platform } : (bType === "train" && tLookupOperator !== "" && !tManualMode ? { operator: tLookupOperator } : {}),
     };
   };
 
@@ -3105,19 +3219,77 @@ function CreatePage() {
       {/* ── TRAIN FORM ── */}
       {bType === "train" && (
         <div>
-          <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
-            <div style={{ flex: 1 }}><p style={bLabel}>ORIGIN</p><PlaceAutocomplete value={tOrigin} onChange={setTOrigin} onSelect={p => setTOPlace(p)} placeholder="Penn Station, NYC" types="transit_station|train_station|locality" /></div>
-            <div style={{ flex: 1 }}><p style={bLabel}>DESTINATION</p><PlaceAutocomplete value={tDest} onChange={setTDest} onSelect={p => setTDPlace(p)} placeholder="Union Station, DC" types="transit_station|train_station|locality" /></div>
-          </div>
-          <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
-            <div style={{ flex: 1 }}><p style={bLabel}>DEPART</p><input type="time" value={tDepart} onChange={e => setTDepart(e.target.value)} style={bInput()} /></div>
-            <div style={{ flex: 1 }}><p style={bLabel}>ARRIVE</p><input type="time" value={tArrive} onChange={e => setTArrive(e.target.value)} style={bInput()} /></div>
-          </div>
-          <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
-            <div style={{ flex: 1 }}><p style={bLabel}>OPERATOR</p><input type="text" value={tOperator} onChange={e => setTOperator(e.target.value)} placeholder="Amtrak, SNCF..." style={bInput()} /></div>
-            <div style={{ flex: 1 }}><p style={bLabel}>TRAIN NO.</p><input type="text" value={tNumber} onChange={e => setTNumber(e.target.value)} placeholder="NE Regional 171" style={bInput()} /></div>
-          </div>
-          <div style={{ marginBottom: 6 }}><p style={bLabel}>DATE</p><DatePicker value={tDate} onChange={setTDate} /></div>
+          {!tManualMode ? (
+            <>
+              <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+                <div style={{ flex: 1 }}>
+                  <p style={bLabel}>OPERATOR</p>
+                  <select value={tLookupOperator} onChange={e => { setTLookupOperator(e.target.value); setTLookupResult(null); setTLookupError(null); setTLookupOptions(null); }} style={{ ...bInput(), cursor: "pointer" }}>
+                    {TRAIN_OPERATORS.map(op => <option key={op.id} value={op.id}>{op.name} ({op.country})</option>)}
+                  </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <p style={bLabel}>TRAIN NO.</p>
+                  <input type="text" value={tLookupNumber} onChange={e => { setTLookupNumber(e.target.value); setTLookupResult(null); setTLookupError(null); }} onKeyDown={e => e.key === "Enter" && handleTrainQuery()} placeholder={TRAIN_OPERATORS.find(o => o.id === tLookupOperator)?.placeholder || "123"} style={{ ...bInput(), textTransform: "uppercase", letterSpacing: "1px" }} />
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+                <div style={{ flex: 1 }}><p style={bLabel}>DATE</p><DatePicker value={tDate} onChange={setTDate} /></div>
+                <div style={{ display: "flex", alignItems: "flex-end" }}>
+                  <button onClick={handleTrainQuery} disabled={tLookupLoading || !tLookupNumber.trim()} style={{ padding: "9px 16px", borderRadius: 6, border: "1px solid var(--border-primary)", background: "var(--bg-surface)", color: tLookupNumber.trim() ? "var(--strip-train)" : "var(--text-tertiary)", fontFamily: FONT, fontSize: "9px", fontWeight: 700, letterSpacing: "2px", cursor: "pointer" }}>{tLookupLoading ? "..." : "QUERY"}</button>
+                </div>
+              </div>
+              {tLookupError && <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--strip-train)", marginBottom: 6, fontWeight: 700 }}>{tLookupError}</p>}
+              {tLookupOptions && (
+                <div style={{ marginBottom: 6 }}>
+                  <p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--strip-train)", marginBottom: 6 }}>{tLookupOptions.length} TRAINS FOUND — SELECT ONE</p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {tLookupOptions.map((opt, i) => (
+                      <button key={i} onClick={() => selectTrain(opt)} className="tappable-card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderRadius: 4, border: "1px solid var(--border-primary)", background: "var(--bg-surface)", cursor: "pointer", textAlign: "left" }}>
+                        <span style={{ fontFamily: FONT, fontSize: "11px", fontWeight: 600, color: "var(--strip-train)" }}>{opt.origin.name?.split(" ")[0] || "?"} → {opt.destination.name?.split(" ")[0] || "?"}</span>
+                        <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{opt.route_name || opt.train_number}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {tLookupResult && (
+                <div style={{ border: "1px solid var(--strip-train)", borderRadius: 6, padding: 10, marginBottom: 6, background: "var(--bg-surface)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--strip-train)", display: "inline-block" }} />
+                    <span style={{ fontFamily: FONT, fontSize: "9px", fontWeight: 700, color: "var(--strip-train)", letterSpacing: "1px" }}>MATCH</span>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2px 16px" }}>
+                    {[["ROUTE", `${tLookupResult.origin.name?.split(",")[0] || "?"} → ${tLookupResult.destination.name?.split(",")[0] || "?"}`], ["TRAIN", tLookupResult.route_name || tLookupResult.train_number], ["DEP", tLookupResult.origin.scheduled_departure ? formatTime(tLookupResult.origin.scheduled_departure) : "—"], ["ARR", tLookupResult.destination.scheduled_arrival ? formatTime(tLookupResult.destination.scheduled_arrival) : "—"]].map(([l, v]) => (
+                      <div key={l} style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                        <span style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-secondary)", minWidth: 36 }}>{l}</span>
+                        <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-primary)" }}>{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {tLookupResult.origin.platform && <div style={{ marginTop: 4 }}><span style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)" }}>PLATFORM {tLookupResult.origin.platform}</span></div>}
+                </div>
+              )}
+              <button onClick={() => setTManualMode(true)} style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "1px", color: "var(--text-tertiary)", background: "none", border: "none", cursor: "pointer", padding: "4px 0", textDecoration: "underline" }}>ENTER MANUALLY</button>
+            </>
+          ) : (
+            <>
+              <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+                <div style={{ flex: 1 }}><p style={bLabel}>ORIGIN</p><PlaceAutocomplete value={tOrigin} onChange={setTOrigin} onSelect={p => setTOPlace(p)} placeholder="Penn Station, NYC" types="transit_station|train_station|locality" /></div>
+                <div style={{ flex: 1 }}><p style={bLabel}>DESTINATION</p><PlaceAutocomplete value={tDest} onChange={setTDest} onSelect={p => setTDPlace(p)} placeholder="Union Station, DC" types="transit_station|train_station|locality" /></div>
+              </div>
+              <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+                <div style={{ flex: 1 }}><p style={bLabel}>DEPART</p><input type="time" value={tDepart} onChange={e => setTDepart(e.target.value)} style={bInput()} /></div>
+                <div style={{ flex: 1 }}><p style={bLabel}>ARRIVE</p><input type="time" value={tArrive} onChange={e => setTArrive(e.target.value)} style={bInput()} /></div>
+              </div>
+              <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+                <div style={{ flex: 1 }}><p style={bLabel}>OPERATOR</p><input type="text" value={tOperator} onChange={e => setTOperator(e.target.value)} placeholder="Amtrak, SNCF..." style={bInput()} /></div>
+                <div style={{ flex: 1 }}><p style={bLabel}>TRAIN NO.</p><input type="text" value={tNumber} onChange={e => setTNumber(e.target.value)} placeholder="NE Regional 171" style={bInput()} /></div>
+              </div>
+              <div style={{ marginBottom: 6 }}><p style={bLabel}>DATE</p><DatePicker value={tDate} onChange={setTDate} /></div>
+              <button onClick={() => setTManualMode(false)} style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "1px", color: "var(--text-tertiary)", background: "none", border: "none", cursor: "pointer", padding: "4px 0", textDecoration: "underline" }}>LOOK UP TRAIN</button>
+            </>
+          )}
         </div>
       )}
 
