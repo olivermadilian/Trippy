@@ -61,9 +61,9 @@ function mapTrip(t) {
 
 function mapFlightLookup(r) {
   return {
-    carrier: r.carrier, carrier_code: r.carrier_code, callsign: r.callsign,
-    origin: { code: r.origin.code, airport: r.origin.airport, scheduled: r.origin.scheduled, scheduled_local: r.origin.scheduled_local, terminal: r.origin.terminal, gate: r.origin.gate },
-    destination: { code: r.destination.code, airport: r.destination.airport, scheduled: r.destination.scheduled, scheduled_local: r.destination.scheduled_local, terminal: r.destination.terminal, gate: r.destination.gate },
+    carrier: r.carrier || r.carrier_code || null, carrier_code: r.carrier_code, callsign: r.callsign,
+    origin: { code: r.origin.code, airport: r.origin.airport, city: r.origin.city, scheduled: r.origin.scheduled },
+    destination: { code: r.destination.code, airport: r.destination.airport, city: r.destination.city, scheduled: r.destination.scheduled },
     status: r.status, flight_date: r.flight_date,
   };
 }
@@ -328,14 +328,13 @@ function formatDuration(d, a, origin, destination) {
 }
 function calcNights(leg) { if (leg.metadata?.nights) return leg.metadata.nights; if (!leg.depart_time || !leg.arrive_time) return 1; const ci = leg.depart_time.split("T")[0], co = leg.arrive_time.split("T")[0]; return Math.max(1, Math.round((new Date(co) - new Date(ci)) / 86400000)); }
 function interpolateGC(p1, p2, n = 60) { const i = d3.geoInterpolate(p1, p2); return Array.from({ length: n + 1 }, (_, k) => i(k / n)); }
-// Check if a leg might be live. Uses a 6-hour buffer after scheduled arrival
-// to handle delays AND timezone mismatches (AviationStack returns local times
-// stored as UTC — can be off by up to 5-6 hours for US flights).
-const LIVE_BUFFER_MS = 6 * 60 * 60 * 1000; // 6 hours
+// Check if a leg might be live. Uses a 2-hour buffer after scheduled arrival
+// to account for delays (FR24 returns proper UTC times).
+const LIVE_BUFFER_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 function isLegLive(leg, realTrackData) {
   if (leg.status === "in_air" || leg.status === "in_transit") return true;
-  // If OpenSky/ADS-B confirms the flight is in the air, trust that
+  // If FR24 ADS-B confirms the flight is in the air, trust that
   if (realTrackData) return true;
   // Auto-detect based on scheduled times with generous buffer
   if (leg.type === "flight" && leg.depart_time && leg.arrive_time && leg.status !== "completed" && leg.status !== "cancelled") {
@@ -353,8 +352,8 @@ function shouldProbeTracking(leg) {
   if (leg.status === "in_air" || leg.status === "in_transit") return true;
   if (!leg.depart_time || !leg.arrive_time) return false;
   const now = Date.now(), dep = new Date(leg.depart_time).getTime(), arr = new Date(leg.arrive_time).getTime();
-  // Probe window: 2 hours before departure through arrival + 8 hours (covers worst-case TZ offset)
-  return now >= dep - 2 * 3600000 && now <= arr + 8 * 3600000;
+  // Probe window: 2 hours before departure through arrival + 3 hours (covers delays)
+  return now >= dep - 2 * 3600000 && now <= arr + 3 * 3600000;
 }
 
 function getLivePos(leg, realPosition) {
@@ -378,7 +377,7 @@ function getLivePos(leg, realPosition) {
 function useLiveTracking(leg) {
   const [liveData, setLiveData] = useState(null);
   useEffect(() => {
-    // Use shouldProbeTracking (wider window) to decide whether to poll OpenSky
+    // Use shouldProbeTracking (wider window) to decide whether to poll FR24
     if (!shouldProbeTracking(leg)) { setLiveData(null); return; }
     const callsign = leg.vehicle_number;
     let active = true;
@@ -2364,7 +2363,7 @@ function DetailPage({ tripId }) {
 
   const addLeg = async () => {
     let newLeg;
-    if (bType === "flight" && bAF) { newLeg = { type: "flight", origin: { code: bAF.origin.code, city: bAF.origin.airport, lat: 0, lng: 0 }, destination: { code: bAF.destination.code, city: bAF.destination.airport, lat: 0, lng: 0 }, depart_time: bAF.origin.scheduled, arrive_time: bAF.destination.scheduled, carrier: bAF.carrier, vehicle_number: bAF.callsign, metadata: { terminal: bAF.origin.terminal, gate: bAF.origin.gate, depart_local: bAF.origin.scheduled_local || null, arrive_local: bAF.destination.scheduled_local || null } }; }
+    if (bType === "flight" && bAF) { newLeg = { type: "flight", origin: { code: bAF.origin.code, city: bAF.origin.airport, lat: 0, lng: 0 }, destination: { code: bAF.destination.code, city: bAF.destination.airport, lat: 0, lng: 0 }, depart_time: bAF.origin.scheduled, arrive_time: bAF.destination.scheduled, carrier: bAF.carrier, vehicle_number: bAF.callsign, metadata: {} }; }
     else if (bType === "hotel") { const nights = bHO ? Math.max(1, Math.round((new Date(bHO) - new Date(bHI)) / 86400000)) : 1; const hLat = bHPlace?.lat || 0; const hLng = bHPlace?.lng || 0; const hCity = bHPlace?.city || bHN; newLeg = { type: "hotel", origin: { code: null, city: hCity, lat: hLat, lng: hLng }, destination: { code: null, city: hCity, lat: hLat, lng: hLng }, depart_time: `${bHI}T15:00:00Z`, arrive_time: bHO ? `${bHO}T11:00:00Z` : `${bHI}T11:00:00Z`, carrier: bHN, vehicle_number: null, metadata: { nights, confirmation: bHC, address: bHPlace?.address || null } }; }
     else { const oLat = bOPlace?.lat || 0; const oLng = bOPlace?.lng || 0; const dLat = bDPlace?.lat || 0; const dLng = bDPlace?.lng || 0; const oCity = bOPlace?.city || bO; const dCity = bDPlace?.city || bD; newLeg = { type: bType, origin: { code: bO.slice(0, 3).toUpperCase(), city: oCity, lat: oLat, lng: oLng }, destination: { code: bD.slice(0, 3).toUpperCase(), city: dCity, lat: dLat, lng: dLng }, depart_time: `${bDt}T${bTm || "08:00"}:00Z`, arrive_time: `${bDt}T12:00:00Z`, carrier: bType === "train" ? "Train" : "Bus", vehicle_number: null, metadata: {} }; }
     try {
@@ -2725,9 +2724,8 @@ function CreatePage() {
     setBAF(af); setBFlightOptions(null);
     setFOrigin(af.origin.code || "");
     setFDest(af.destination.code || "");
-    // Use local time for display fields, fall back to UTC scheduled
-    const depLocal = af.origin.scheduled_local || af.origin.scheduled || "";
-    const arrLocal = af.destination.scheduled_local || af.destination.scheduled || "";
+    const depLocal = af.origin.scheduled || "";
+    const arrLocal = af.destination.scheduled || "";
     if (depLocal) { setFDepart(depLocal.substring(11, 16)); if (!fDate) setFDate(depLocal.substring(0, 10)); }
     if (arrLocal) { setFArrive(arrLocal.substring(11, 16)); setFArriveDate(arrLocal.substring(0, 10)); }
     setFCarrier(af.carrier || "");
@@ -2762,7 +2760,7 @@ function CreatePage() {
         depart_time: depTime,
         arrive_time: arrTime,
         carrier: fCarrier, vehicle_number: fFlightNo,
-        metadata: bAF ? { terminal: bAF.origin.terminal, gate: bAF.origin.gate, depart_local: bAF.origin.scheduled_local || null, arrive_local: bAF.destination.scheduled_local || null } : {},
+        metadata: {},
       };
     }
     if (bType === "hotel") {

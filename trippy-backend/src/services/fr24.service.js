@@ -427,10 +427,14 @@ async function lookupFlight(callsign, date) {
         }
       }
 
+      // Derive a readable carrier: use IATA prefix from flight number (e.g. "AA" from "AA1234")
+      const flightNum = f.flight || clean;
+      const carrierPrefix = flightNum.replace(/\d+/g, '').trim() || null;
+
       return {
         fr24_id: f.fr24_id || null,
-        callsign: f.flight || clean,
-        carrier: null, // FR24 gives operated_as ICAO code, not name
+        callsign: flightNum,
+        carrier: carrierPrefix,
         carrier_code: f.operated_as || null,
         flight_ended: ended,
         origin: {
