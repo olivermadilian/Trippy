@@ -60,6 +60,73 @@ html, body, #root {
   0% { top: 110%; }
   100% { top: -20%; }
 }
+
+/* Runway edge lights */
+@keyframes ew {
+  0%, 100% { opacity: 0.4; box-shadow: 0 0 4px rgba(255,255,255,0.2); }
+  50% { opacity: 1; box-shadow: 0 0 14px rgba(255,255,255,0.6), 0 0 28px rgba(255,255,255,0.25); }
+}
+/* Threshold green */
+@keyframes tg {
+  0%, 100% { opacity: 0.5; box-shadow: 0 0 6px rgba(34,197,94,0.3); }
+  50% { opacity: 1; box-shadow: 0 0 18px rgba(34,197,94,0.7), 0 0 35px rgba(34,197,94,0.25); }
+}
+/* End red */
+@keyframes er {
+  0%, 100% { opacity: 0.4; box-shadow: 0 0 6px rgba(232,66,51,0.3); }
+  50% { opacity: 1; box-shadow: 0 0 18px rgba(232,66,51,0.7), 0 0 35px rgba(232,66,51,0.25); }
+}
+/* PAPI red/white */
+@keyframes prg {
+  0%, 100% { opacity: 0.6; box-shadow: 0 0 5px rgba(232,66,51,0.4); }
+  50% { opacity: 1; box-shadow: 0 0 16px rgba(232,66,51,0.8), 0 0 30px rgba(232,66,51,0.3); }
+}
+@keyframes pwg {
+  0%, 100% { opacity: 0.6; box-shadow: 0 0 5px rgba(255,255,255,0.3); }
+  50% { opacity: 1; box-shadow: 0 0 16px rgba(255,255,255,0.7), 0 0 30px rgba(255,255,255,0.25); }
+}
+/* Approach strobes */
+@keyframes ss {
+  0%, 8% { opacity: 1; box-shadow: 0 0 16px rgba(255,255,255,0.8), 0 0 32px rgba(255,255,255,0.3); }
+  12%, 100% { opacity: 0.06; }
+}
+/* Taxiway blue/amber */
+@keyframes txb {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.8; box-shadow: 0 0 12px rgba(56,120,200,0.6); }
+}
+@keyframes txa {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.8; box-shadow: 0 0 12px rgba(201,153,58,0.6); }
+}
+/* Track signals */
+@keyframes sg {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; box-shadow: 0 0 12px rgba(34,197,94,0.6); }
+}
+@keyframes sr {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; box-shadow: 0 0 12px rgba(232,66,51,0.6); }
+}
+
+/* Multilingual hero rotation — mobile */
+@keyframes slideDown {
+  0%, 30% { transform: translateY(-84px); }
+  33%, 63% { transform: translateY(-42px); }
+  66%, 96% { transform: translateY(0); }
+  100% { transform: translateY(-84px); }
+}
+/* Desktop override */
+@media (min-width: 769px) {
+  @keyframes slideDownDesktop {
+    0%, 30% { transform: translateY(-112px); }
+    33%, 63% { transform: translateY(-56px); }
+    66%, 96% { transform: translateY(0); }
+    100% { transform: translateY(-112px); }
+  }
+}
+
+/* Legacy aliases kept for app components */
 @keyframes lightPulse {
   0%, 100% { opacity: 0.4; }
   50% { opacity: 1; }

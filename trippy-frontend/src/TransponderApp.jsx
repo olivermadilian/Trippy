@@ -521,275 +521,321 @@ function LoadingScreen() { return <div className="flex items-center justify-cent
 // ═══════════════════════════════════════════════════════════════════
 
 function LandingPage({ onSignIn }) {
-  const isMobile = !useIsDesktop();
+  const isDesktop = useIsDesktop();
+  const isMobile = !isDesktop;
 
-  const runwayWidth = isMobile ? 140 : 170;
-  const trackWidth = isMobile ? 110 : 130;
+  // Edge light positions (20 per side)
+  const edgeTops = Array.from({length: 20}, (_, i) => 4 + i * 4);
+  const edgeDelaysL = [0,.5,1,1.5,.3,.8,1.3,.1,.6,1.1,1.6,.4,.9,1.4,.2,.7,1.2,1.7,.5,1];
+  const edgeDelaysR = [.3,.8,1.3,.1,.6,1.1,1.6,.4,.9,1.4,.2,.7,1.2,1.7,.5,1,1.5,.3,.8,1.3];
+  const rendPositions = [6,22,38,54,70,86,102,118];
+  const rendDelays = [0,.3,.6,.2,.5,.8,.1,.4];
+  const thrPositions = [6,22,38,54,70,86,102,118];
+  const thrDelays = [0,.2,.4,.1,.3,.5,.2,.4];
+  const heroLineH = isMobile ? 42 : 56;
+  const slideAnim = isDesktop ? 'slideDownDesktop' : 'slideDown';
 
   return (
-    <div style={{ background: '#000', minHeight: '100vh', fontFamily: FONT, color: '#e8e4de', overflow: 'hidden', position: 'relative' }}>
-      {/* ── Infrastructure Strip ── */}
-      <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', zIndex: 0, overflow: 'hidden' }}>
-        <div style={{ position: 'absolute', width: 340, height: '300%', top: '-60%', left: isMobile ? '78%' : '55%', transform: 'translateX(-50%) rotate(-25deg)', display: 'flex', flexDirection: 'row' }}>
+    <div style={{ background: '#000', minHeight: '100vh', fontFamily: FONT, color: '#b8e8b8', overflow: 'hidden', position: 'relative' }}>
 
-          {/* Runway */}
-          <div style={{ width: runwayWidth, background: '#060806', borderLeft: '2px solid #0a1a0a', position: 'relative', overflow: 'hidden', height: '100%' }}>
+      {/* ══ INFRASTRUCTURE ══ */}
+      <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none', zIndex: 0, overflow: 'hidden' }}>
+        {isMobile && (
+          <div style={{ position: 'absolute', top: 0, left: 0, width: '75%', height: '100%', background: 'linear-gradient(to right, #000 0%, #000 40%, rgba(0,0,0,0.88) 60%, rgba(0,0,0,0.5) 80%, transparent 100%)', zIndex: 1 }}/>
+        )}
+        <div style={{ position: 'absolute', width: isDesktop ? 340 : 280, height: '300%', top: '-60%', left: isDesktop ? '55%' : '78%', transform: 'translateX(-50%) rotate(-25deg)', transformOrigin: 'center' }}>
+
+          {/* ── Runway ── */}
+          <div style={{ position: 'absolute', left: 0, top: 0, width: isDesktop ? 170 : 140, height: '100%', background: '#060806', borderLeft: '2px solid #0a1a0a', borderRight: '1px solid #0a1a0a' }}>
             {/* Center dashes */}
-            {Array.from({length: 28}, (_, i) => (
-              <div key={`dash-${i}`} style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: `${3 + i * 3.3}%`, width: isMobile ? 5 : 6, height: isMobile ? 40 : 45, background: '#1a2a1a' }}/>
+            <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 5, height: '100%', display: 'flex', flexDirection: 'column', gap: 20, paddingTop: 40 }}>
+              {Array.from({length: 25}, (_, i) => (
+                <div key={`rd-${i}`} style={{ width: 5, height: 40, background: '#1a2a1a', borderRadius: 1, flexShrink: 0 }}/>
+              ))}
+            </div>
+            {/* Edge lights L */}
+            {edgeTops.map((top, i) => (
+              <div key={`el-l-${i}`} style={{ position: 'absolute', left: 6, top: `${top}%`, width: 5, height: 5, borderRadius: '50%', background: '#e8e4de', animation: `ew 3s ease-in-out infinite`, animationDelay: `${edgeDelaysL[i]}s` }}/>
             ))}
-            {/* Edge lights */}
-            {Array.from({length: 20}, (_, i) => {
-              const top = 4 + i * 4;
-              return [
-                <div key={`el-l-${i}`} style={{ position: 'absolute', left: 4, top: `${top}%`, width: isMobile ? 5 : 6, height: isMobile ? 5 : 6, borderRadius: '50%', background: '#e8e4de', animation: 'lightPulse 3s ease-in-out infinite', animationDelay: `${i * 0.15}s`, boxShadow: '0 0 4px 2px rgba(232,228,222,0.3)' }}/>,
-                <div key={`el-r-${i}`} style={{ position: 'absolute', right: 4, top: `${top}%`, width: isMobile ? 5 : 6, height: isMobile ? 5 : 6, borderRadius: '50%', background: '#e8e4de', animation: 'lightPulse 3s ease-in-out infinite', animationDelay: `${(i * 0.15) + 0.08}s`, boxShadow: '0 0 4px 2px rgba(232,228,222,0.3)' }}/>
-              ];
-            })}
-            {/* Threshold lights (green) */}
-            {Array.from({length: 5}, (_, i) => (
-              <div key={`th-${i}`} style={{ position: 'absolute', bottom: '20%', left: `${15 + i * 17}%`, width: isMobile ? 7 : 8, height: isMobile ? 7 : 8, borderRadius: '50%', background: '#22c55e', animation: 'greenPulse 2s ease-in-out infinite', animationDelay: `${i * 0.1}s`, boxShadow: '0 0 6px 3px rgba(34,197,94,0.4)' }}/>
+            {/* Edge lights R */}
+            {edgeTops.map((top, i) => (
+              <div key={`el-r-${i}`} style={{ position: 'absolute', right: 6, top: `${top}%`, width: 5, height: 5, borderRadius: '50%', background: '#e8e4de', animation: `ew 3s ease-in-out infinite`, animationDelay: `${edgeDelaysR[i]}s` }}/>
             ))}
-            {/* Runway end lights (red) */}
-            {Array.from({length: 5}, (_, i) => (
-              <div key={`re-${i}`} style={{ position: 'absolute', top: '18%', left: `${15 + i * 17}%`, width: isMobile ? 6 : 7, height: isMobile ? 6 : 7, borderRadius: '50%', background: '#e84233', animation: 'redPulse 2.5s ease-in-out infinite', animationDelay: `${i * 0.12}s`, boxShadow: '0 0 6px 3px rgba(232,66,51,0.4)' }}/>
-            ))}
-            {/* PAPI lights */}
-            {[-30, runwayWidth + 10].map((xOff, si) => (
-              <div key={`papi-${si}`} style={{ position: 'absolute', bottom: '22%', left: xOff, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                {[['#e84233', 'rgba(232,66,51,0.4)'], ['#e84233', 'rgba(232,66,51,0.4)'], ['#e8e4de', 'rgba(232,228,222,0.4)'], ['#e8e4de', 'rgba(232,228,222,0.4)']].map(([c, g], di) => (
-                  <div key={di} style={{ width: 4, height: 4, borderRadius: '50%', background: c, boxShadow: `0 0 4px 2px ${g}` }}/>
-                ))}
-              </div>
-            ))}
+            {/* Runway end (red) */}
+            <div style={{ position: 'absolute', top: '18%', left: 0, width: '100%' }}>
+              {rendPositions.map((left, i) => (
+                <div key={`rl-${i}`} style={{ position: 'absolute', left, width: 6, height: 6, borderRadius: '50%', background: '#e84233', animation: `er 2.5s ease-in-out infinite`, animationDelay: `${rendDelays[i]}s` }}/>
+              ))}
+            </div>
+            {/* Threshold (green) */}
+            <div style={{ position: 'absolute', bottom: '20%', left: 0, width: '100%' }}>
+              {thrPositions.map((left, i) => (
+                <div key={`tl-${i}`} style={{ position: 'absolute', left, width: 7, height: 7, borderRadius: '50%', background: '#22c55e', animation: `tg 2s ease-in-out infinite`, animationDelay: `${thrDelays[i]}s` }}/>
+              ))}
+            </div>
             {/* Approach strobes */}
-            {[11, 8, 5].map((bot, ri) => (
-              <div key={`strobe-row-${ri}`} style={{ position: 'absolute', bottom: `${bot}%`, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 8 }}>
-                {Array.from({length: 3}, (_, di) => (
-                  <div key={di} style={{ width: isMobile ? 5 : 6, height: isMobile ? 5 : 6, borderRadius: '50%', background: '#fff', animation: 'strobePulse 2s linear infinite', animationDelay: `${ri * 0.3 + di * 0.1}s` }}/>
-                ))}
-              </div>
+            <div style={{ position: 'absolute', bottom: '11%', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 8 }}>
+              <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#e84233', animation: 'prg 2s ease-in-out infinite' }}/>
+              {[0,.1,.2].map((d, i) => <div key={i} style={{ width: 5, height: 5, borderRadius: '50%', background: '#fff', animation: `ss 2s ease-in-out infinite`, animationDelay: `${d}s` }}/>)}
+              <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#e84233', animation: 'prg 2s ease-in-out infinite' }}/>
+            </div>
+            <div style={{ position: 'absolute', bottom: '8%', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 8 }}>
+              {[0,1].map(i => <div key={`ar1-${i}`} style={{ width: 4, height: 4, borderRadius: '50%', background: '#e84233', animation: 'prg 2s ease-in-out infinite' }}/>)}
+              {[.3,.4].map((d, i) => <div key={`as1-${i}`} style={{ width: 5, height: 5, borderRadius: '50%', background: '#fff', animation: `ss 2s ease-in-out infinite`, animationDelay: `${d}s` }}/>)}
+              {[0,1].map(i => <div key={`ar2-${i}`} style={{ width: 4, height: 4, borderRadius: '50%', background: '#e84233', animation: 'prg 2s ease-in-out infinite' }}/>)}
+            </div>
+            <div style={{ position: 'absolute', bottom: '5%', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 8 }}>
+              {[.5,.6].map((d, i) => <div key={i} style={{ width: 5, height: 5, borderRadius: '50%', background: '#fff', animation: `ss 2s ease-in-out infinite`, animationDelay: `${d}s` }}/>)}
+            </div>
+            {/* PAPI */}
+            <div style={{ position: 'absolute', bottom: '22%', left: -28, display: 'flex', gap: 5 }}>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#e84233', animation: 'prg 3s ease-in-out infinite' }}/>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#e84233', animation: 'prg 3s ease-in-out infinite' }}/>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#e8e4de', animation: 'pwg 3s ease-in-out infinite', animationDelay: '0.5s' }}/>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#e8e4de', animation: 'pwg 3s ease-in-out infinite', animationDelay: '0.5s' }}/>
+            </div>
+            <div style={{ position: 'absolute', bottom: '22%', right: -28, display: 'flex', gap: 5 }}>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#e8e4de', animation: 'pwg 3s ease-in-out infinite', animationDelay: '0.5s' }}/>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#e8e4de', animation: 'pwg 3s ease-in-out infinite', animationDelay: '0.5s' }}/>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#e84233', animation: 'prg 3s ease-in-out infinite' }}/>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#e84233', animation: 'prg 3s ease-in-out infinite' }}/>
+            </div>
+            {/* Taxiway lights */}
+            {[35,44,53,62].map((top, i) => (
+              <div key={`txb-${i}`} style={{ position: 'absolute', left: -20, top: `${top}%`, width: 4, height: 4, borderRadius: '50%', background: '#3878c8', animation: `txb 4s ease-in-out infinite`, animationDelay: `${i * 0.5}s` }}/>
             ))}
-            {/* Taxiway lights (blue) */}
-            {[30, 45, 60, 75].map((top, i) => (
-              <div key={`taxi-b-${i}`} style={{ position: 'absolute', left: -22, top: `${top}%`, width: isMobile ? 4 : 5, height: isMobile ? 4 : 5, borderRadius: '50%', background: '#3878c8', animation: 'lightPulse 4s ease-in-out infinite', animationDelay: `${i * 0.5}s`, boxShadow: '0 0 4px 2px rgba(56,120,200,0.3)' }}/>
-            ))}
-            {/* Taxiway lights (amber) */}
-            {[35, 50, 65].map((top, i) => (
-              <div key={`taxi-a-${i}`} style={{ position: 'absolute', left: -16, top: `${top}%`, width: isMobile ? 3 : 4, height: isMobile ? 3 : 4, borderRadius: '50%', background: '#c9993a', animation: 'lightPulse 3s ease-in-out infinite', animationDelay: `${i * 0.4}s`, boxShadow: '0 0 3px 1px rgba(201,153,58,0.3)' }}/>
+            {[38,47].map((top, i) => (
+              <div key={`txa-${i}`} style={{ position: 'absolute', left: -14, top: `${top}%`, width: 3, height: 3, borderRadius: '50%', background: '#c9993a', animation: `txa 3s ease-in-out infinite`, animationDelay: `${i * 1 + 0.3}s` }}/>
             ))}
             {/* Runway number */}
-            <div style={{ position: 'absolute', bottom: '14%', left: '50%', transform: 'translateX(-50%)', fontSize: isMobile ? 26 : 32, fontWeight: 700, color: '#0f1f0f', fontFamily: FONT }}>09</div>
-
-            {/* Plane SVG */}
-            <svg viewBox="0 0 160 190" style={{ width: isMobile ? 130 : 160, height: isMobile ? 155 : 190, position: 'absolute', left: '50%', transform: 'translateX(-50%)', animation: 'planeMove 16s linear infinite', zIndex: 2 }}>
-              <ellipse cx="80" cy="20" rx="8" ry="15" fill="#c8c8c0" opacity="0.7"/>
-              <rect x="72" y="20" width="16" height="130" rx="3" fill="#c8c8c0" opacity="0.7"/>
-              <ellipse cx="80" cy="150" rx="8" ry="10" fill="#c8c8c0" opacity="0.65"/>
-              <polygon points="80,60 10,85 10,90 80,75" fill="#a0a098" opacity="0.65"/>
-              <polygon points="80,60 150,85 150,90 80,75" fill="#a0a098" opacity="0.65"/>
-              <rect x="5" y="83" width="8" height="4" rx="2" fill="#a0a098" opacity="0.5"/>
-              <rect x="147" y="83" width="8" height="4" rx="2" fill="#a0a098" opacity="0.5"/>
-              <ellipse cx="45" cy="75" rx="5" ry="8" fill="#888880" opacity="0.55"/>
-              <ellipse cx="115" cy="75" rx="5" ry="8" fill="#888880" opacity="0.55"/>
-              <polygon points="80,140 55,155 55,158 80,148" fill="#a0a098" opacity="0.6"/>
-              <polygon points="80,140 105,155 105,158 80,148" fill="#a0a098" opacity="0.6"/>
-              <polygon points="78,135 80,115 82,135" fill="#b0b0a8" opacity="0.6"/>
-              <circle cx="8" cy="86" r="3" fill="#e84233" opacity="0.8">
-                <animate attributeName="opacity" values="0.3;1;0.3" dur="1s" repeatCount="indefinite"/>
-              </circle>
-              <circle cx="8" cy="86" r="6" fill="none" stroke="#e84233" strokeWidth="1" opacity="0.3">
-                <animate attributeName="opacity" values="0.1;0.4;0.1" dur="1s" repeatCount="indefinite"/>
-              </circle>
-              <circle cx="152" cy="86" r="3" fill="#22c55e" opacity="0.8">
-                <animate attributeName="opacity" values="0.3;1;0.3" dur="1s" repeatCount="indefinite"/>
-              </circle>
-              <circle cx="152" cy="86" r="6" fill="none" stroke="#22c55e" strokeWidth="1" opacity="0.3">
-                <animate attributeName="opacity" values="0.1;0.4;0.1" dur="1s" repeatCount="indefinite"/>
-              </circle>
-              <circle cx="80" cy="50" r="2" fill="#e84233">
-                <animate attributeName="opacity" values="0.1;1;0.1" dur="0.8s" repeatCount="indefinite"/>
-              </circle>
-              <circle cx="80" cy="140" r="2" fill="#e84233">
-                <animate attributeName="opacity" values="0.1;1;0.1" dur="0.8s" repeatCount="indefinite"/>
-              </circle>
-              <circle cx="80" cy="10" r="4" fill="#fff" opacity="0.15"/>
-            </svg>
-          </div>
-
-          {/* Divider between runway and track */}
-          <div style={{ width: isMobile ? 3 : 4, background: '#000', height: '100%' }}/>
-
-          {/* Train track */}
-          <div style={{ width: trackWidth, background: '#040404', position: 'relative', overflow: 'hidden', height: '100%' }}>
-            {/* Ballast texture */}
-            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'repeating-linear-gradient(180deg, rgba(12,12,16,0.5) 0px, rgba(8,8,12,0.3) 2px, transparent 3px, transparent 6px)', opacity: 0.5 }}/>
-            {/* Cross ties */}
-            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'repeating-linear-gradient(to bottom, transparent 0px, transparent 10px, #0c0c10 10px, #0c0c10 13px)' }}/>
-            {/* Steel rails */}
-            <div style={{ position: 'absolute', top: 0, bottom: 0, left: '30%', width: isMobile ? 2 : 3, background: '#1e1e22' }}/>
-            <div style={{ position: 'absolute', top: 0, bottom: 0, right: '30%', width: isMobile ? 2 : 3, background: '#1e1e22' }}/>
-            {/* Track signals */}
-            {[25, 45, 65, 85].map((top, i) => (
-              <div key={`sig-${i}`} style={{ position: 'absolute', right: 8, top: `${top}%`, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                <div style={{ width: isMobile ? 4 : 5, height: isMobile ? 4 : 5, borderRadius: '50%', background: '#22c55e', opacity: i % 2 === 0 ? 0.8 : 0.1, boxShadow: i % 2 === 0 ? '0 0 4px 2px rgba(34,197,94,0.3)' : 'none' }}/>
-                <div style={{ width: isMobile ? 4 : 5, height: isMobile ? 4 : 5, borderRadius: '50%', background: '#e84233', opacity: i % 2 === 0 ? 0.1 : 0.8, boxShadow: i % 2 !== 0 ? '0 0 4px 2px rgba(232,66,51,0.3)' : 'none' }}/>
-              </div>
-            ))}
-            {/* Train (TGV) */}
-            <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', animation: 'trainMove 18s linear infinite', zIndex: 2, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              {/* Locomotive */}
-              <div style={{ width: isMobile ? 24 : 30, height: isMobile ? 36 : 42, background: 'linear-gradient(180deg, #d4628a, #a84068)', borderRadius: '8px 8px 2px 2px', position: 'relative' }}>
-                <div style={{ position: 'absolute', top: -4, left: '50%', transform: 'translateX(-50%)', width: isMobile ? 7 : 8, height: isMobile ? 7 : 8, borderRadius: '50%', background: '#f0d0e0', boxShadow: '0 0 12px 6px rgba(212,98,138,0.5), 0 0 28px 14px rgba(212,98,138,0.2)' }}/>
-              </div>
-              {/* Coaches */}
-              {Array.from({length: 4}, (_, i) => (
-                <div key={`coach-${i}`} style={{ width: isMobile ? 24 : 30, height: isMobile ? 26 : 32, background: 'linear-gradient(180deg, #1a1a2a, #22223a)', borderRadius: 2, marginTop: 2, position: 'relative', overflow: 'hidden' }}>
-                  <div style={{ position: 'absolute', top: '40%', left: 3, right: 3, height: 2, background: 'rgba(200,200,255,0.08)' }}/>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ── Mobile vignette ── */}
-      {isMobile && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'linear-gradient(to right, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.7) 50%, rgba(0,0,0,0.3) 100%)', pointerEvents: 'none', zIndex: 1 }}/>
-      )}
-
-      {/* ── Fixed Nav ── */}
-      <div style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 10, padding: isMobile ? '14px 20px' : '20px 40px', background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', borderBottom: '1px solid rgba(74,255,74,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: 10, letterSpacing: 4, color: '#4aff4a', fontWeight: 600, fontFamily: FONT }}>TRANSPONDER</span>
-        <button onClick={onSignIn} style={{ height: isMobile ? 38 : 40, padding: isMobile ? '0 18px' : '0 20px', background: '#22c55e', color: '#000', borderRadius: 8, fontSize: 9, letterSpacing: 2, fontWeight: 500, cursor: 'pointer', border: 'none', fontFamily: FONT }}>GET STARTED</button>
-      </div>
-
-      {/* ── Content ── */}
-      <div style={{ position: 'relative', zIndex: 2 }}>
-        <div style={{ maxWidth: isMobile ? 340 : 560, padding: isMobile ? '0 20px' : '0 40px' }}>
-
-          {/* ── Hero Section ── */}
-          <div style={{ paddingTop: isMobile ? 90 : 100, paddingBottom: isMobile ? 40 : 60 }}>
-            <div style={{ fontSize: 8, letterSpacing: 4, color: '#22c55e', animation: 'fadeUp 0.6s ease forwards', animationDelay: '0.2s', opacity: 0, fontFamily: FONT }}>TRAVEL TRACKING &middot; REIMAGINED</div>
-            <div style={{ marginTop: 16 }}>
-              {['Track your flight.', 'Follow a train', 'across Europe.', 'Log every stop.'].map((line, i) => (
-                <span key={i} style={{ display: 'block', fontSize: isMobile ? 36 : 48, fontWeight: 700, color: '#e8e4de', letterSpacing: -0.5, lineHeight: 1.12, animation: 'fadeUp 0.5s ease forwards', animationDelay: `${0.4 + i * 0.3}s`, opacity: 0, fontFamily: FONT }}>{line}</span>
-              ))}
-            </div>
-            <p style={{ marginTop: 20, fontSize: isMobile ? 14 : 15, color: '#5a7a5a', lineHeight: 1.7, animation: 'fadeUp 0.5s ease forwards', animationDelay: '1.6s', opacity: 0, fontFamily: FONT }}>
-              <strong style={{ color: '#c8e8c8', fontWeight: 600 }}>Transponder</strong> is a personal travel tracker built for people who move. File a flight plan, share a squawk code, and follow your friends across borders — all in one place.
-            </p>
-            <div style={{ display: 'flex', gap: 8, marginTop: 22, animation: 'fadeUp 0.5s ease forwards', animationDelay: '2.0s', opacity: 0, flexWrap: 'wrap' }}>
-              {[['FLIGHTS', '#22c55e'], ['TRAINS', '#d4628a'], ['HOTELS', '#c9993a'], ['BUSES', '#7c6bb4']].map(([label, color]) => (
-                <span key={label} style={{ padding: '7px 14px', borderRadius: 4, fontSize: 9, letterSpacing: 2, background: 'transparent', border: `1px solid ${color}`, color, fontFamily: FONT }}>{label}</span>
-              ))}
+            <div style={{ position: 'absolute', bottom: '14%', left: '50%', transform: 'translateX(-50%)', fontSize: 26, fontWeight: 700, color: '#0f1f0f', letterSpacing: 8, fontFamily: FONT }}>09</div>
+            {/* Plane */}
+            <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', animation: 'planeMove 16s linear infinite' }}>
+              <svg width="130" height="155" viewBox="0 0 160 190" fill="none">
+                <ellipse cx="80" cy="18" rx="9" ry="18" fill="#c8c8c0" opacity="0.75"/>
+                <rect x="71" y="18" width="18" height="110" rx="5" fill="#c8c8c0" opacity="0.65"/>
+                <ellipse cx="80" cy="128" rx="9" ry="10" fill="#c8c8c0" opacity="0.6"/>
+                <path d="M71 62 L6 86 L6 92 L71 78Z" fill="#a0a098" opacity="0.65"/>
+                <path d="M89 62 L154 86 L154 92 L89 78Z" fill="#a0a098" opacity="0.65"/>
+                <ellipse cx="30" cy="78" rx="5.5" ry="11" fill="#888880" opacity="0.55"/>
+                <ellipse cx="130" cy="78" rx="5.5" ry="11" fill="#888880" opacity="0.55"/>
+                <path d="M71 130 L38 148 L38 152 L71 140Z" fill="#a0a098" opacity="0.55"/>
+                <path d="M89 130 L122 148 L122 152 L89 140Z" fill="#a0a098" opacity="0.55"/>
+                <path d="M77 118 L80 118 L80 155 L77 155Z" fill="#b0b0a8" opacity="0.55"/>
+                <circle cx="3" cy="90" r="3.5" fill="#e84233" opacity="0.85"><animate attributeName="opacity" values="0.3;1;0.3" dur="1s" repeatCount="indefinite"/></circle>
+                <circle cx="157" cy="90" r="3.5" fill="#22c55e" opacity="0.85"><animate attributeName="opacity" values="0.3;1;0.3" dur="1s" repeatCount="indefinite"/></circle>
+                <circle cx="80" cy="70" r="2.5" fill="#e84233" opacity="0.75"><animate attributeName="opacity" values="0.1;1;0.1" dur="0.8s" repeatCount="indefinite"/></circle>
+              </svg>
             </div>
           </div>
 
           {/* Divider */}
-          <div style={{ width: 40, height: 1, background: '#1a2a1a', margin: isMobile ? '40px 20px' : '40px 0' }}/>
+          <div style={{ position: 'absolute', left: isDesktop ? 168 : 138, top: 0, width: 3, height: '100%', background: '#000' }}/>
 
-          {/* ── Features Section ── */}
-          <div style={{ paddingBottom: isMobile ? 40 : 60, display: 'flex', flexDirection: 'column', gap: isMobile ? 36 : 40 }}>
-            {[
-              { icon: '\u2708', label: 'FILE', text: 'Build your full itinerary in one place. Flights auto-populate from a callsign. Hotels via Google Places. Trains across SNCF, Deutsche Bahn, and more.' },
-              { icon: '\u25C6', label: 'SQUAWK', text: 'Generate a one-time 6-character code. Send it to anyone \u2014 they enter it, your trip appears in their feed. 24-hour expiry. No accounts needed to follow.' },
-              { icon: '\u25CE', label: 'TRACK', text: 'See where your people might be \u2014 city-level presence, not hotel pins. Live flight progress, train updates, countdown to departure. Your permanent travel archive.' },
-            ].map((f, i) => (
-              <div key={i} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-                <div style={{ width: isMobile ? 42 : 44, height: isMobile ? 42 : 44, border: '1.5px solid #22c55e', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4aff4a', fontSize: 15, flexShrink: 0 }}>{f.icon}</div>
-                <div>
-                  <div style={{ fontSize: 9, letterSpacing: 3, color: '#4aff4a', marginBottom: 6, fontFamily: FONT }}>{f.label}</div>
-                  <div style={{ fontSize: isMobile ? 12 : 13, color: '#3a5a3a', lineHeight: 1.6, fontFamily: FONT }}>{f.text}</div>
-                </div>
+          {/* ── Train Track ── */}
+          <div style={{ position: 'absolute', right: 0, top: 0, width: isDesktop ? 130 : 110, height: '100%', background: '#040404' }}>
+            <div style={{ position: 'absolute', left: 16, top: 0, width: 50, height: '100%', background: 'repeating-linear-gradient(to bottom, #060608 0px, #080810 2px, #060608 4px)', opacity: 0.5 }}/>
+            <div style={{ position: 'absolute', left: 20, top: 0, width: 42, height: '100%', background: 'repeating-linear-gradient(to bottom, transparent 0px, transparent 10px, #0c0c10 10px, #0c0c10 13px)' }}/>
+            <div style={{ position: 'absolute', top: 0, left: 30, width: 2, height: '100%', background: '#1e1e22' }}/>
+            <div style={{ position: 'absolute', top: 0, left: 50, width: 2, height: '100%', background: '#1e1e22' }}/>
+            {/* Signals */}
+            {[{top:'18%',g:true},{top:'42%',g:false},{top:'65%',g:true}].map((s, i) => (
+              <div key={`tsig-${i}`} style={{ position: 'absolute', left: 60, top: s.top, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#22c55e', opacity: s.g ? 1 : 0.1, animation: s.g ? 'sg 4s ease-in-out infinite' : 'none' }}/>
+                <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#e84233', opacity: s.g ? 0.1 : 1, animation: !s.g ? 'sr 4s ease-in-out infinite' : 'none' }}/>
               </div>
             ))}
-          </div>
-
-          {/* Divider */}
-          <div style={{ width: 40, height: 1, background: '#1a2a1a', margin: isMobile ? '40px 20px' : '40px 0' }}/>
-
-          {/* ── Connected Networks Section ── */}
-          <div style={{ paddingBottom: isMobile ? 40 : 60 }}>
-            <div style={{ fontSize: 8, letterSpacing: 3, color: '#22c55e', marginBottom: 12, fontFamily: FONT }}>CONNECTED NETWORKS</div>
-            <div style={{ fontSize: isMobile ? 20 : 22, fontWeight: 600, color: '#e8e4de', marginBottom: 8, fontFamily: FONT }}>Flights. Trains. Everything.</div>
-            <div style={{ fontSize: 11, color: '#3a5a3a', lineHeight: 1.6, marginBottom: 20, fontFamily: FONT }}>Real-time data from European and North American rail networks. Flight tracking across all major carriers.</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {[
-                { name: 'SNCF', color: '#d4628a', icon: 'TGV', detail: 'TGV \u00B7 INTERCIT\u00C9S \u00B7 TER \u00B7 FRENCH RAIL', status: 'LIVE', statusBg: 'rgba(34,197,94,0.15)', statusColor: '#22c55e' },
-                { name: 'DEUTSCHE BAHN', color: '#e84233', icon: 'DB', detail: 'ICE \u00B7 IC \u00B7 REGIONAL \u00B7 GERMAN RAIL', status: 'LIVE', statusBg: 'rgba(34,197,94,0.15)', statusColor: '#22c55e' },
-                { name: 'AMTRAK', color: '#3878c8', icon: 'ATK', detail: 'NORTHEAST REGIONAL \u00B7 ACELA', status: 'COMING SOON', statusBg: 'rgba(201,153,58,0.15)', statusColor: '#c9993a' },
-              ].map((n, i) => (
-                <div key={i} style={{ border: '1px solid #1a2a1a', borderRadius: 8, padding: '12px 14px', background: '#050a05', display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ width: 3, height: 36, borderRadius: 2, background: n.color, flexShrink: 0 }}/>
-                  <div style={{ width: 34, height: 34, borderRadius: 6, border: `1px solid ${n.color}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, color: n.color, fontWeight: 600, fontFamily: FONT, flexShrink: 0 }}>{n.icon}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 10, fontWeight: 600, color: '#e8e4de', fontFamily: FONT }}>{n.name}</div>
-                    <div style={{ fontSize: 7, color: '#2a4a2a', letterSpacing: 1, fontFamily: FONT }}>{n.detail}</div>
+            {/* Train */}
+            <div style={{ position: 'absolute', left: 26, animation: 'trainMove 18s linear infinite' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <div style={{ width: 24, height: 36, borderRadius: '7px 7px 2px 2px', position: 'relative', background: 'linear-gradient(to bottom, #d4628a, #a84068)' }}>
+                  <div style={{ position: 'absolute', top: 3, left: '50%', transform: 'translateX(-50%)', width: 7, height: 7, borderRadius: '50%', background: '#f0d0e0', boxShadow: '0 0 12px rgba(212,98,138,0.8), 0 0 28px rgba(212,98,138,0.4)' }}/>
+                </div>
+                {Array.from({length: 4}, (_, i) => (
+                  <div key={`tc-${i}`} style={{ width: 24, height: 26, borderRadius: 2, background: 'linear-gradient(to right, #1a1a2a, #22223a)', position: 'relative' }}>
+                    <div style={{ position: 'absolute', top: 5, left: 2, right: 2, height: 4, background: 'rgba(200,200,255,0.1)', borderRadius: 1 }}/>
                   </div>
-                  <span style={{ marginLeft: 'auto', fontSize: 7, letterSpacing: 1, padding: '3px 7px', borderRadius: 3, background: n.statusBg, color: n.statusColor, fontFamily: FONT, whiteSpace: 'nowrap' }}>{n.status}</span>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
+        </div>
+      </div>
 
-          {/* Divider */}
-          <div style={{ width: 40, height: 1, background: '#1a2a1a', margin: isMobile ? '40px 20px' : '40px 0' }}/>
+      {/* ══ NAV ══ */}
+      <nav style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: isDesktop ? '20px 40px' : '14px 20px', background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', borderBottom: '1px solid rgba(74,255,74,0.06)' }}>
+        <div style={{ fontSize: 10, letterSpacing: 4, color: '#4aff4a', fontWeight: 600, fontFamily: FONT }}>TRANSPONDER</div>
+        <button onClick={onSignIn} style={{ height: isDesktop ? 40 : 38, padding: isDesktop ? '0 20px' : '0 18px', border: '1px solid #22c55e', borderRadius: 8, background: '#22c55e', color: '#000', fontSize: 9, letterSpacing: 2, fontFamily: FONT, fontWeight: 500, cursor: 'pointer' }}>GET STARTED</button>
+      </nav>
 
-          {/* ── App Preview Section ── */}
-          <div style={{ padding: isMobile ? '20px 0 40px' : '20px 0 40px' }}>
-            <div style={{ width: isMobile ? 240 : 260, background: '#0a0a0c', borderRadius: 28, padding: 6, border: '3px solid #1a1a1e', position: 'relative', overflow: 'hidden' }}>
-              {/* Notch */}
-              <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 70, height: 18, background: '#0a0a0c', borderRadius: '0 0 10px 10px', border: '2px solid #1a1a1e', borderTop: 'none', zIndex: 2 }}/>
-              {/* Screen */}
-              <div style={{ background: '#000', borderRadius: 22, overflow: 'hidden', padding: '28px 12px 16px' }}>
-                <div style={{ fontSize: 7, letterSpacing: 2, color: '#22c55e', fontFamily: FONT }}>FLIGHT PLAN</div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#e8e4de', marginTop: 4, fontFamily: FONT }}>EUROPE SUMMER '26</div>
-                <span style={{ display: 'inline-block', fontSize: 7, padding: '2px 6px', background: 'rgba(201,153,58,0.15)', color: '#c9993a', borderRadius: 3, marginTop: 6, fontFamily: FONT }}>12D 4H</span>
-                {/* Mini radar map */}
-                <div style={{ width: '100%', height: 80, background: '#020402', borderRadius: 8, margin: '12px 0', border: '1px solid #0a1a0a', overflow: 'hidden', position: 'relative' }}>
-                  <svg viewBox="0 0 200 70" style={{ width: '100%', height: '100%' }}>
-                    <line x1="20" y1="35" x2="180" y2="25" stroke="#22c55e" strokeWidth="1" opacity="0.4"/>
-                    <line x1="180" y1="25" x2="120" y2="50" stroke="#22c55e" strokeWidth="1" opacity="0.4"/>
-                    <circle cx="20" cy="35" r="3" fill="#4aff4a"/>
-                    <circle cx="180" cy="25" r="3" fill="#4aff4a"/>
-                    <circle cx="120" cy="50" r="3" fill="#c9993a" opacity="0.6"/>
-                    <text x="20" y="30" fill="#4aff4a" fontSize="5" fontFamily="'B612 Mono','B612',monospace">LAX</text>
-                    <text x="175" y="20" fill="#4aff4a" fontSize="5" fontFamily="'B612 Mono','B612',monospace" textAnchor="end">CDG</text>
-                    <text x="120" y="45" fill="#c9993a" fontSize="5" fontFamily="'B612 Mono','B612',monospace">BCN</text>
-                  </svg>
-                </div>
-                {/* Mini leg cards */}
-                <div style={{ borderLeft: '2px solid #22c55e', background: '#050a05', padding: '8px 10px', borderRadius: 4, marginBottom: 6 }}>
-                  <div style={{ fontSize: 8, color: '#e8e4de', fontWeight: 600, fontFamily: FONT }}>LAX → CDG</div>
-                  <div style={{ fontSize: 6, color: '#3a5a3a', marginTop: 2, fontFamily: FONT }}>AF 65 · JUN 15</div>
-                </div>
-                <div style={{ borderLeft: '2px solid #c9993a', background: '#050a05', padding: '8px 10px', borderRadius: 4, marginBottom: 6 }}>
-                  <div style={{ fontSize: 8, color: '#e8e4de', fontWeight: 600, fontFamily: FONT }}>H&Ocirc;TEL MARAIS</div>
-                  <div style={{ fontSize: 6, color: '#3a5a3a', marginTop: 2, fontFamily: FONT }}>3 NIGHTS · PARIS</div>
-                </div>
-                <div style={{ borderLeft: '2px solid #d4628a', background: '#050a05', padding: '8px 10px', borderRadius: 4 }}>
-                  <div style={{ fontSize: 8, color: '#e8e4de', fontWeight: 600, fontFamily: FONT }}>CDG → BCN SANTS</div>
-                  <div style={{ fontSize: 6, color: '#3a5a3a', marginTop: 2, fontFamily: FONT }}>TGV 6825 · JUN 18</div>
-                </div>
+      {/* ══ CONTENT ══ */}
+      <div style={{ position: 'relative', zIndex: 2, maxWidth: isDesktop ? 560 : undefined, padding: isDesktop ? '0 40px' : undefined }}>
+
+        {/* ── Hero ── */}
+        <section style={{ padding: isDesktop ? '100px 0 60px' : '90px 20px 40px', maxWidth: isDesktop ? 560 : 380 }}>
+          <div style={{ marginBottom: 24 }}>
+            {/* Line 1 track (bottom→top): FR → DE → EN. At -84: EN (State 1), -42: DE (State 2), 0: FR (State 3) */}
+            <div style={{ display: 'block', height: heroLineH, overflow: 'hidden', position: 'relative', marginBottom: 4 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', animation: `${slideAnim} 9s cubic-bezier(0.4, 0, 0.2, 1) infinite`, transform: `translateY(-${heroLineH * 2}px)` }}>
+                <div style={{ fontSize: isDesktop ? 44 : 'clamp(22px, 7vw, 28px)', fontWeight: 700, letterSpacing: -0.5, lineHeight: `${heroLineH}px`, whiteSpace: 'nowrap', flexShrink: 0, height: heroLineH, color: '#d4c8ff', fontFamily: FONT }}>Suivez vols et trains.</div>
+                <div style={{ fontSize: isDesktop ? 44 : 'clamp(22px, 7vw, 28px)', fontWeight: 700, letterSpacing: -0.5, lineHeight: `${heroLineH}px`, whiteSpace: 'nowrap', flexShrink: 0, height: heroLineH, color: '#c8e0ff', fontFamily: FONT }}>Fl&uuml;ge und Z&uuml;ge tracken.</div>
+                <div style={{ fontSize: isDesktop ? 44 : 'clamp(22px, 7vw, 28px)', fontWeight: 700, letterSpacing: -0.5, lineHeight: `${heroLineH}px`, whiteSpace: 'nowrap', flexShrink: 0, height: heroLineH, color: '#e8e4de', fontFamily: FONT }}>Track flights and trains.</div>
+              </div>
+            </div>
+            {/* Line 2 track (bottom→top): DE → EN → FR. At -84: FR (State 1), -42: EN (State 2), 0: DE (State 3) */}
+            <div style={{ display: 'block', height: heroLineH, overflow: 'hidden', position: 'relative', marginBottom: 4 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', animation: `${slideAnim} 9s cubic-bezier(0.4, 0, 0.2, 1) infinite`, transform: `translateY(-${heroLineH * 2}px)` }}>
+                <div style={{ fontSize: isDesktop ? 44 : 'clamp(22px, 7vw, 28px)', fontWeight: 700, letterSpacing: -0.5, lineHeight: `${heroLineH}px`, whiteSpace: 'nowrap', flexShrink: 0, height: heroLineH, color: '#c8e0ff', fontFamily: FONT }}>Ein Code pro Reise.</div>
+                <div style={{ fontSize: isDesktop ? 44 : 'clamp(22px, 7vw, 28px)', fontWeight: 700, letterSpacing: -0.5, lineHeight: `${heroLineH}px`, whiteSpace: 'nowrap', flexShrink: 0, height: heroLineH, color: '#e8e4de', fontFamily: FONT }}>Every trip gets a code.</div>
+                <div style={{ fontSize: isDesktop ? 44 : 'clamp(22px, 7vw, 28px)', fontWeight: 700, letterSpacing: -0.5, lineHeight: `${heroLineH}px`, whiteSpace: 'nowrap', flexShrink: 0, height: heroLineH, color: '#d4c8ff', fontFamily: FONT }}>Un code par voyage.</div>
+              </div>
+            </div>
+            {/* Line 3 track (bottom→top): EN → FR → DE. At -84: DE (State 1), -42: FR (State 2), 0: EN (State 3) */}
+            <div style={{ display: 'block', height: heroLineH, overflow: 'hidden', position: 'relative', marginBottom: 4 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', animation: `${slideAnim} 9s cubic-bezier(0.4, 0, 0.2, 1) infinite`, transform: `translateY(-${heroLineH * 2}px)` }}>
+                <div style={{ fontSize: isDesktop ? 44 : 'clamp(22px, 7vw, 28px)', fontWeight: 700, letterSpacing: -0.5, lineHeight: `${heroLineH}px`, whiteSpace: 'nowrap', flexShrink: 0, height: heroLineH, color: '#e8e4de', fontFamily: FONT }}>Follow your people.</div>
+                <div style={{ fontSize: isDesktop ? 44 : 'clamp(22px, 7vw, 28px)', fontWeight: 700, letterSpacing: -0.5, lineHeight: `${heroLineH}px`, whiteSpace: 'nowrap', flexShrink: 0, height: heroLineH, color: '#d4c8ff', fontFamily: FONT }}>Suivez vos proches.</div>
+                <div style={{ fontSize: isDesktop ? 44 : 'clamp(22px, 7vw, 28px)', fontWeight: 700, letterSpacing: -0.5, lineHeight: `${heroLineH}px`, whiteSpace: 'nowrap', flexShrink: 0, height: heroLineH, color: '#c8e0ff', fontFamily: FONT }}>Folge deinen Leuten.</div>
               </div>
             </div>
           </div>
 
-          {/* ── Bottom CTA Section ── */}
-          <div style={{ padding: isMobile ? '20px 0 60px' : '60px 0 80px' }}>
-            <div style={{ fontSize: isMobile ? 20 : 22, fontWeight: 600, color: '#e8e4de', lineHeight: 1.2, marginBottom: 20, fontFamily: FONT }}>Ready to track your next trip?</div>
-            <button onClick={onSignIn} style={{ width: '100%', maxWidth: isMobile ? undefined : 560, height: 50, background: '#22c55e', color: '#000', borderRadius: 10, fontSize: 11, letterSpacing: 3, fontWeight: 500, cursor: 'pointer', border: 'none', fontFamily: FONT }}>GET STARTED</button>
-            <div style={{ fontSize: 8, color: '#2a4a2a', textAlign: 'center', marginTop: 10, fontFamily: FONT }}>Sign in with Google to begin filing your first flight plan.</div>
+          <p style={{ fontSize: isDesktop ? 15 : 14, color: '#5a7a5a', lineHeight: 1.7, opacity: 0, animation: 'fadeUp 0.6s ease forwards', animationDelay: '0.6s', fontFamily: FONT }}>
+            <strong style={{ color: '#c8e8c8', fontWeight: 600 }}>Transponder</strong> lets you combine flights, trains, and hotels into one trip. Each trip gets a squawk code you can share with anyone. They follow along with real-time updates — no app needed.
+          </p>
+
+          <div style={{ display: 'flex', gap: 8, marginTop: 22, flexWrap: 'wrap', opacity: 0, animation: 'fadeUp 0.5s ease forwards', animationDelay: '1.0s' }}>
+            {[['FLIGHTS','#22c55e'],['TRAINS','#d4628a'],['HOTELS','#c9993a'],['BUSES','#7c6bb4']].map(([label, color]) => (
+              <span key={label} style={{ padding: '7px 14px', borderRadius: 4, fontSize: 9, letterSpacing: 2, fontWeight: 500, border: `1px solid ${color}`, color, fontFamily: FONT }}>{label}</span>
+            ))}
           </div>
-        </div>
+        </section>
+
+        <div style={{ width: 40, height: 1, background: '#1a2a1a', margin: isDesktop ? '40px 0' : '40px 20px' }}/>
+
+        {/* ── Features ── */}
+        <section style={{ padding: isDesktop ? '0 0 40px' : '0 20px 40px', display: 'flex', flexDirection: 'column', gap: 36, maxWidth: isDesktop ? 520 : 380 }}>
+          {[
+            { icon: '\u2708', label: 'FILE', text: 'Start with the dates, then layer in flights, trains, and stays. The more detail you add, the better it gets \u2014 and everything stays updated as plans change.' },
+            { icon: '\u25B6', label: 'EN ROUTE', text: 'Your trip is live. Stay on top of every leg as it happens \u2014 flight delays, train changes, gate updates. Everything in one place, updating as you go.' },
+            { icon: '\u25CE', label: 'TRACK', text: 'Each trip gets a 4-digit squawk code. Share it and choose what others see \u2014 from live flight progress and train arrivals to city-level check-ins or exact locations.' },
+          ].map((f, i) => (
+            <div key={i} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+              <div style={{ width: 42, height: 42, border: '1.5px solid #22c55e', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, color: '#4aff4a', fontSize: 15 }}>{f.icon}</div>
+              <div>
+                <div style={{ fontSize: 9, letterSpacing: 3, color: '#4aff4a', marginBottom: 4, fontFamily: FONT }}>{f.label}</div>
+                <div style={{ fontSize: 12, color: '#3a5a3a', lineHeight: 1.6, fontFamily: FONT }}>{f.text}</div>
+              </div>
+            </div>
+          ))}
+        </section>
+
+        <div style={{ width: 40, height: 1, background: '#1a2a1a', margin: isDesktop ? '40px 0' : '40px 20px' }}/>
+
+        {/* ── Networks ── */}
+        <section style={{ padding: isDesktop ? '0 0 40px' : '0 20px 40px', maxWidth: isDesktop ? 520 : 380 }}>
+          <div style={{ fontSize: 8, letterSpacing: 3, color: '#22c55e', marginBottom: 16, fontFamily: FONT }}>ACTIVE AND PLANNED NETWORKS</div>
+          <div style={{ fontSize: 12, color: '#3a5a3a', lineHeight: 1.6, marginBottom: 16, fontFamily: FONT }}>Track the train from Paris to Marseille like a flight from JFK to LAX.</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {[
+              { name: 'SNCF', color: '#d4628a', detail: 'TGV \u00B7 Intercit\u00E9s \u00B7 TER \u00B7 French rail', status: 'LIVE', live: true },
+              { name: 'DEUTSCHE BAHN', color: '#e84233', detail: 'ICE \u00B7 IC \u00B7 Regional \u00B7 German rail', status: 'LIVE', live: true },
+              { name: 'NATIONAL RAIL', color: '#e8e4de', detail: 'Avanti \u00B7 LNER \u00B7 GWR \u00B7 UK rail', status: 'COMING SOON', live: false },
+              { name: 'AMTRAK', color: '#3878c8', detail: 'Northeast Regional \u00B7 Acela', status: 'COMING SOON', live: false },
+            ].map((n, i) => (
+              <div key={i} style={{ border: '1px solid #1a2a1a', borderRadius: 8, padding: '12px 14px', background: '#050a05', display: 'flex', alignItems: 'center', gap: 12, borderLeft: `3px solid ${n.color}` }}>
+                <div style={{ width: 34, height: 34, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 13, border: `1px solid ${n.color}`, color: n.color }}>{'\u25CA'}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: n.color, marginBottom: 2, fontFamily: FONT }}>{n.name}</div>
+                  <div style={{ fontSize: 7, color: '#2a4a2a', lineHeight: 1.4, fontFamily: FONT }}>{n.detail}</div>
+                </div>
+                <span style={{ fontSize: 7, letterSpacing: 1, padding: '3px 7px', borderRadius: 3, whiteSpace: 'nowrap', fontFamily: FONT, color: n.live ? '#22c55e' : '#c9993a', border: `1px solid ${n.live ? '#1a2a1a' : '#1e1e14'}` }}>{n.status}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <div style={{ width: 40, height: 1, background: '#1a2a1a', margin: isDesktop ? '40px 0' : '40px 20px' }}/>
+
+        {/* ── App Preview ── */}
+        <section style={{ padding: '20px 20px 40px', display: 'flex', justifyContent: 'center' }}>
+          <div style={{ width: isDesktop ? 260 : 240, background: '#0a0a0c', borderRadius: 28, padding: 6, border: '3px solid #1a1a1e', position: 'relative', boxShadow: '0 16px 50px rgba(0,0,0,0.5), 0 0 0 1px #0f0f12 inset' }}>
+            <div style={{ position: 'absolute', top: 6, left: '50%', transform: 'translateX(-50%)', width: 70, height: 18, background: '#0a0a0c', borderRadius: '0 0 10px 10px', zIndex: 2, border: '2px solid #1a1a1e', borderTop: 'none' }}/>
+            <div style={{ background: '#000', borderRadius: 22, overflow: 'hidden', padding: '28px 10px 10px' }}>
+              <div style={{ fontSize: 6, letterSpacing: 2, color: '#2a5a2a', marginBottom: 3, fontFamily: FONT }}>FLIGHT PLAN FILED</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#b8e8b8', fontFamily: FONT }}>PV Spring Break</div>
+                <div style={{ fontSize: 6, color: '#c9993a', border: '1px solid #2a2a18', padding: '2px 5px', borderRadius: 2, background: '#12120a', fontFamily: FONT }}>T-6D</div>
+              </div>
+              <div style={{ height: 60, background: '#000', borderRadius: 3, marginBottom: 5, overflow: 'hidden', border: '1px solid #0f1a0f' }}>
+                <svg width="100%" height="100%" viewBox="0 0 216 60">
+                  <defs><pattern id="mg7" width="12" height="12" patternUnits="userSpaceOnUse"><path d="M 12 0 L 0 0 0 12" fill="none" stroke="#081008" strokeWidth="0.5"/></pattern></defs>
+                  <rect width="100%" height="100%" fill="url(#mg7)"/>
+                  <path d="M 30,24 Q 108,4 190,42" fill="none" stroke="#22c55e" strokeWidth="1.5" opacity="0.7"/>
+                  <circle cx="30" cy="24" r="2" fill="#4aff4a"/><circle cx="190" cy="42" r="2" fill="#4aff4a"/>
+                  <text x="18" y="18" fill="#4aff4a" fontFamily={FONT} fontSize="6" fontWeight="600">LAX</text>
+                  <text x="180" y="56" fill="#4aff4a" fontFamily={FONT} fontSize="6" fontWeight="600">PVR</text>
+                </svg>
+              </div>
+              <div style={{ borderRadius: 2, padding: '4px 6px', background: '#050a05', marginBottom: 3, border: '1px solid #1a2a1a', borderLeft: '2px solid #22c55e' }}>
+                <div style={{ fontSize: 5, color: '#22c55e', letterSpacing: 1, marginBottom: 2, fontFamily: FONT }}>FLIGHT &middot; AA2987</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#b8e8b8', fontFamily: FONT }}>LAX</span>
+                  <span style={{ fontSize: 5, color: '#1a3a1a', fontFamily: FONT }}>2H 58M</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#b8e8b8', fontFamily: FONT }}>PVR</span>
+                </div>
+              </div>
+              <div style={{ borderRadius: 2, padding: '4px 6px', background: '#0a0806', marginBottom: 3, border: '1px solid #1e1e14', borderLeft: '2px solid #c9993a' }}>
+                <div style={{ fontSize: 5, color: '#c9993a', letterSpacing: 1, marginBottom: 1, fontFamily: FONT }}>GROUND STOP &middot; 4N</div>
+                <div style={{ fontSize: 8, fontWeight: 600, color: '#d4c8a0', fontFamily: FONT }}>One&amp;Only Mandarina</div>
+              </div>
+              <div style={{ borderRadius: 2, padding: '4px 6px', background: '#0a0508', border: '1px solid #1e141a', borderLeft: '2px solid #d4628a' }}>
+                <div style={{ fontSize: 5, color: '#d4628a', letterSpacing: 1, marginBottom: 2, fontFamily: FONT }}>TRAIN &middot; TGV 6123</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#b8e8b8', fontFamily: FONT }}>CDG</span>
+                  <span style={{ fontSize: 5, color: '#1a3a1a', fontFamily: FONT }}>1H 56M</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#b8e8b8', fontFamily: FONT }}>LYS</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div style={{ width: 40, height: 1, background: '#1a2a1a', margin: isDesktop ? '40px 0' : '40px 20px' }}/>
+
+        {/* ── CTA ── */}
+        <section style={{ padding: isDesktop ? '20px 0 60px' : '20px 20px 60px', maxWidth: isDesktop ? 520 : 380 }}>
+          <div style={{ fontSize: 20, fontWeight: 600, color: '#e8e4de', marginBottom: 16, lineHeight: 1.2, fontFamily: FONT }}>Ready to track your next trip?</div>
+          <button onClick={onSignIn} style={{ width: '100%', height: 50, border: 'none', borderRadius: 10, background: '#22c55e', color: '#000', fontSize: 11, letterSpacing: 3, fontFamily: FONT, fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18A10.96 10.96 0 001 12c0 1.77.42 3.44 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+            SIGN UP WITH GOOGLE
+          </button>
+          <div style={{ fontSize: 8, color: '#2a4a2a', textAlign: 'center', marginTop: 10, lineHeight: 1.5, fontFamily: FONT }}>Create your account now. We'll let you know<br/>when Transponder is ready for takeoff.</div>
+        </section>
 
         {/* ── Footer ── */}
-        <div style={{ padding: isMobile ? '24px 20px' : '32px 40px', borderTop: '1px solid #0f1a0f', display: 'flex', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 8, color: '#1a3a1a', letterSpacing: 1, fontFamily: FONT }}>TRANSPONDER &middot; 2026</span>
-          <span style={{ fontSize: 8, color: '#1a3a1a', letterSpacing: 1, fontFamily: FONT }}>BUILT IN LOS ANGELES</span>
-        </div>
+        <footer style={{ padding: isDesktop ? '32px 40px' : '24px 20px', borderTop: '1px solid #0f1a0f', display: 'flex', justifyContent: 'space-between', fontSize: 8, color: '#1a3a1a', letterSpacing: 1, fontFamily: FONT }}>
+          <span>TRANSPONDER &middot; 2026</span>
+          <span>BUILT IN AUBERVILLE LA MANUEL</span>
+        </footer>
       </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PRE-LAUNCH CONFIRMATION
+// ═══════════════════════════════════════════════════════════════════
+
+const PRE_LAUNCH = true; // flip to false on launch day
+
+function PreLaunchConfirmation({ onSignOut }) {
+  return (
+    <div style={{ background: '#000', minHeight: '100vh', fontFamily: FONT, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ fontSize: 11, letterSpacing: 4, color: '#4aff4a', fontWeight: 600, marginBottom: 40 }}>TRANSPONDER</div>
+      <div style={{ fontSize: 22, fontWeight: 600, color: '#e8e4de', marginBottom: 16 }}>You're on the list.</div>
+      <div style={{ fontSize: 12, color: '#3a5a3a', lineHeight: 1.6, textAlign: 'center', marginBottom: 32 }}>We'll send you an email when<br/>Transponder is ready for takeoff.</div>
+      <button onClick={onSignOut} style={{ fontSize: 9, color: '#22c55e', background: 'none', border: 'none', textDecoration: 'underline', cursor: 'pointer', fontFamily: FONT, letterSpacing: 1 }}>BACK TO TRANSPONDERAPP.COM</button>
     </div>
   );
 }
@@ -3705,6 +3751,7 @@ function TransponderApp() {
 
   if (authLoading) return <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg-primary)" }}><Spinner /></div>;
   if (!user) return <LandingPage onSignIn={signIn} />;
+  if (PRE_LAUNCH) return <PreLaunchConfirmation onSignOut={signOut} />;
 
   const isFullWidth = route.page === "detail" || route.page === "dashboard" || route.page === "shared";
   return (
