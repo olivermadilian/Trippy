@@ -8,13 +8,27 @@ const AVSTACK_BASE = process.env.AVIATIONSTACK_HTTPS === 'true'
 /**
  * Convert a local time string + IANA timezone to a UTC ISO string.
  * e.g. ("2026-04-10T09:30:00", "America/New_York") → "2026-04-10T13:30:00.000Z"
+ *
+ * If the string already carries timezone info (Z, +HH:MM, -HH:MM) — which
+ * happens on AviationStack's free tier — parse it directly without conversion.
  */
 function localToUTC(localTimeStr, timezone) {
-  if (!localTimeStr || !timezone) return localTimeStr || null;
+  if (!localTimeStr) return null;
+
+  // If the string already has explicit timezone info, parse it as-is.
+  if (/Z$|[+-]\d{2}:\d{2}$/.test(localTimeStr)) {
+    try {
+      const d = new Date(localTimeStr);
+      return isNaN(d.getTime()) ? localTimeStr : d.toISOString();
+    } catch { return localTimeStr; }
+  }
+
+  // Bare local datetime — needs timezone conversion.
+  if (!timezone) return localTimeStr;
   try {
-    // Interpret the bare datetime as UTC to get a reference point
+    // Treat the local string as UTC to establish a reference point,
+    // then compute the actual offset to find the real UTC equivalent.
     const asUTC = new Date(localTimeStr + 'Z');
-    // Format that UTC instant in the target timezone
     const parts = new Intl.DateTimeFormat('en-US', {
       timeZone: timezone,
       year: 'numeric', month: '2-digit', day: '2-digit',
@@ -22,7 +36,8 @@ function localToUTC(localTimeStr, timezone) {
       hour12: false,
     }).formatToParts(asUTC);
     const p = (type) => parts.find(x => x.type === type)?.value;
-    const tzStr = `${p('year')}-${p('month')}-${p('day')}T${p('hour')}:${p('minute')}:${p('second')}Z`;
+    const hour = p('hour') === '24' ? '00' : p('hour'); // guard midnight edge case
+    const tzStr = `${p('year')}-${p('month')}-${p('day')}T${hour}:${p('minute')}:${p('second')}Z`;
     const asTZ = new Date(tzStr);
     const offsetMs = asTZ - asUTC;
     return new Date(asUTC.getTime() - offsetMs).toISOString();
