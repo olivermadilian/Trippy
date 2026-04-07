@@ -788,7 +788,7 @@ function LandingPage({ onSignIn }) {
               </div>
               <div style={{ borderRadius: 2, padding: '4px 6px', background: '#0a0806', marginBottom: 3, border: '1px solid #1e1e14', borderLeft: '2px solid #c9993a' }}>
                 <div style={{ fontSize: 5, color: '#c9993a', letterSpacing: 1, marginBottom: 1, fontFamily: FONT }}>GROUND STOP &middot; 4N</div>
-                <div style={{ fontSize: 8, fontWeight: 600, color: '#d4c8a0', fontFamily: FONT }}>One&amp;Only Mandarina</div>
+                <div style={{ fontSize: 8, fontWeight: 600, color: '#d4c8a0', fontFamily: FONT }}>One&Only Mandarina</div>
               </div>
               <div style={{ borderRadius: 2, padding: '4px 6px', background: '#0a0508', border: '1px solid #1e141a', borderLeft: '2px solid #d4628a' }}>
                 <div style={{ fontSize: 5, color: '#d4628a', letterSpacing: 1, marginBottom: 2, fontFamily: FONT }}>TRAIN &middot; TGV 6123</div>
@@ -1808,9 +1808,6 @@ function DashboardPage() {
             </div>
             <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
               <DashboardMap trips={mapTripsArr} filter={filter} heroTripId={heroTrip?.id} hoveredTripId={hoveredTripId} />
-              <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--text-tertiary)" }}>
-                {trips.length} FLIGHT PLAN{trips.length !== 1 ? "S" : ""} FILED
-              </div>
               {hoveredTripId && (() => {
                 const ht = trips.find(t => t.id === hoveredTripId);
                 if (!ht) return null;
@@ -1990,13 +1987,13 @@ function haversineNM(lat1, lon1, lat2, lon2) {
 function computeTripStats(legs) {
   let totalNM = 0, airHrs = 0, hotelNights = 0;
   (legs || []).forEach(l => {
-    if (l.type !== "hotel" && l.origin?.lat != null && l.destination?.lat != null) {
+    if (l.type === "hotel") { hotelNights += calcNights(l); return; }
+    if (l.origin?.lat != null && l.destination?.lat != null) {
       const nm = haversineNM(l.origin.lat, l.origin.lng, l.destination.lat, l.destination.lng);
       totalNM += nm;
-      // Estimate flight time from distance (avoids cross-timezone errors)
-      if (nm > 0) airHrs += nm / 460 + 0.5; // cruise speed + taxi/climb/descent
+      // Only estimate air time for flights (not trains/buses)
+      if (l.type === "flight" && nm > 0) airHrs += nm / 460 + 0.5;
     }
-    if (l.type === "hotel") hotelNights += calcNights(l);
   });
   const airH = Math.floor(airHrs), airM = Math.round((airHrs - airH) * 60);
   return { totalNM: Math.round(totalNM), airTime: airHrs > 0 ? `~${airH}H ${airM}M` : "0H", hotelNights };
@@ -2193,7 +2190,7 @@ function TripMap({ trip, activeLegIndex, mode, isSharedView, liveTrackData, mapT
       {(originCoord || destCoord) && (
         <div className="absolute top-2 right-2" style={{ fontFamily: FONT, fontSize: "8px", color: "var(--map-distance)", letterSpacing: "0.5px", lineHeight: 1.6, textAlign: "right", pointerEvents: "none" }}>
           {originCoord && <div>{originCoord}</div>}
-          {destCoord && <div>{destCoord}</div>}
+          {destCoord && destCoord !== originCoord && <div>{destCoord}</div>}
         </div>
       )}
     </div>
@@ -2338,15 +2335,14 @@ function SatelliteMap({ trip, height = 280 }) {
       }
     });
     if (points.length === 0) return null;
-    if (points.length === 1) return `https://maps.google.com/maps?q=${points[0].key}&z=10&output=embed`;
-    // Build directions URL: origin / waypoints / destination
-    const origin = encodeURIComponent(points[0].key);
-    const dest = encodeURIComponent(points[points.length - 1].key);
-    const mid = points.slice(1, -1).map(p => encodeURIComponent(p.key)).join("/");
-    const dirUrl = mid
-      ? `https://www.google.com/maps/dir/${origin}/${mid}/${dest}/@${points[0].key},5z/data=!4m2!4m1!3e4`
-      : `https://www.google.com/maps/dir/${origin}/${dest}/@${points[0].key},5z/data=!4m2!4m1!3e4`;
-    return `https://maps.google.com/maps?q=&output=embed&saddr=${points[0].key}&daddr=${points[points.length - 1].key}${mid ? "&waypoints=" + points.slice(1, -1).map(p => p.key).join("|") : ""}`;
+    if (points.length === 1) return `https://maps.google.com/maps?q=${points[0].key}&t=k&z=10&output=embed`;
+    // Center on midpoint, show satellite imagery with markers
+    const lats = points.map(p => parseFloat(p.key.split(",")[0]));
+    const lngs = points.map(p => parseFloat(p.key.split(",")[1]));
+    const cLat = ((Math.min(...lats) + Math.max(...lats)) / 2).toFixed(4);
+    const cLng = ((Math.min(...lngs) + Math.max(...lngs)) / 2).toFixed(4);
+    const markers = points.map(p => `markers=${encodeURIComponent(p.key)}`).join("&");
+    return `https://maps.google.com/maps?q=${cLat},${cLng}&t=k&z=4&output=embed`;
   }, [trip?.id, trip?.legs?.length]);
 
   if (!embedUrl) return (
