@@ -1,17 +1,25 @@
 const avstack = require('../services/aviationstack.service');
-const fr24 = require('../services/fr24.service');
+const fr24    = require('../services/fr24.service');
+const amadeus = require('../services/amadeus.service');
 
 /**
- * Flight lookup strategy — parallel combo:
+ * Flight lookup — three-source combo with smart merging:
  *
- * 1. Call AviationStack + FR24 simultaneously.
- * 2. Use FR24 results as the base (richer: aircraft type, registration,
- *    actual distance, live status).
- * 3. Enrich matching FR24 flights with AviationStack terminal/gate/carrier data.
- * 4. Append any AviationStack-only flights (future schedules FR24 hasn't seen yet).
+ * Past / today:
+ *   FR24 (operational base) + AviationStack (terminal/gate enrichment)
  *
- * Either API failing independently will NOT block the other's results.
- * Only a rate-limit error from either API surfaces as a 429.
+ * Future:
+ *   Amadeus (schedule base — has UTC times, aircraft type, duration)
+ *   + AviationStack flightsFuture (terminal/gate enrichment)
+ *   FR24 is called but returns empty for future dates (no wasted quota)
+ *
+ * Merge priority:
+ *   1. FR24-based results (enriched by AviationStack)
+ *   2. Amadeus-based results not already in FR24 (enriched by AviationStack)
+ *   3. AviationStack-only results not covered by either
+ *
+ * Any single API failing never blocks the others. Rate-limit errors (429)
+ * from any API surface immediately.
  */
 async function lookup(req, res) {
   const { callsign, date } = req.query;
@@ -20,61 +28,78 @@ async function lookup(req, res) {
     return res.status(400).json({ error: 'callsign query parameter is required (e.g. DL484)' });
   }
 
-  // Run both APIs in parallel — capture settled results so one failure can't
-  // swallow the other's data.
-  const [avResult, fr24Result] = await Promise.allSettled([
+  const today    = new Date().toISOString().split('T')[0];
+  const isFuture = date && date > today;
+
+  // Run all relevant APIs in parallel.
+  // Amadeus is only called for future dates to preserve the free monthly quota.
+  const calls = [
     avstack.lookupFlight(callsign, date),
     fr24.lookupFlight(callsign, date),
-  ]);
+    isFuture ? amadeus.lookupFlight(callsign, date) : Promise.resolve(null),
+  ];
 
-  // Surface rate-limit errors immediately (429 from either API).
-  for (const r of [avResult, fr24Result]) {
+  const [avResult, fr24Result, amadeusResult] = await Promise.allSettled(calls);
+
+  // Surface rate-limit errors from any source immediately
+  for (const r of [avResult, fr24Result, amadeusResult]) {
     if (r.status === 'rejected' && r.reason?.message?.includes('rate limit')) {
       return res.status(429).json({ error: r.reason.message });
     }
   }
 
-  const avFlights  = (avResult.status  === 'fulfilled' && Array.isArray(avResult.value))  ? avResult.value  : [];
-  const fr24Flights = (fr24Result.status === 'fulfilled' && Array.isArray(fr24Result.value)) ? fr24Result.value : [];
+  const avFlights     = (avResult.status     === 'fulfilled' && Array.isArray(avResult.value))     ? avResult.value     : [];
+  const fr24Flights   = (fr24Result.status   === 'fulfilled' && Array.isArray(fr24Result.value))   ? fr24Result.value   : [];
+  const amadeusFlights = (amadeusResult.status === 'fulfilled' && Array.isArray(amadeusResult.value)) ? amadeusResult.value : [];
 
-  // Build a lookup key: origin + destination + flight date.
-  const routeKey = (f) => `${f.origin?.code}-${f.destination?.code}-${f.flight_date}`;
+  // Route key for dedup/matching: origin + destination + flight date
+  const routeKey = f => `${f.origin?.code}-${f.destination?.code}-${f.flight_date}`;
 
-  // Index AviationStack flights by route key for O(1) enrichment lookups.
+  // Index AviationStack flights for O(1) enrichment lookups
   const avByRoute = new Map();
   for (const av of avFlights) {
     const k = routeKey(av);
     if (!avByRoute.has(k)) avByRoute.set(k, av);
   }
 
-  // Merge: enrich FR24 flights with AviationStack terminal/gate/carrier where available.
-  const enrichedFr24 = fr24Flights.map(f24 => {
-    const av = avByRoute.get(routeKey(f24));
-    if (!av) return { ...f24, source: 'fr24' };
+  /** Enrich a flight's terminal/gate/carrier from a matching AviationStack result */
+  function enrichFromAv(flight, sourceTag) {
+    const av = avByRoute.get(routeKey(flight));
+    if (!av) return { ...flight, source: sourceTag };
     return {
-      ...f24,
-      source: 'fr24+aviationstack',
-      carrier: f24.carrier || av.carrier,
+      ...flight,
+      source: `${sourceTag}+aviationstack`,
+      carrier: flight.carrier || av.carrier,
       origin: {
-        ...f24.origin,
-        terminal: f24.origin.terminal ?? av.origin.terminal,
-        gate:     f24.origin.gate     ?? av.origin.gate,
+        ...flight.origin,
+        terminal: flight.origin.terminal ?? av.origin.terminal,
+        gate:     flight.origin.gate     ?? av.origin.gate,
       },
       destination: {
-        ...f24.destination,
-        terminal: f24.destination.terminal ?? av.destination.terminal,
-        gate:     f24.destination.gate     ?? av.destination.gate,
+        ...flight.destination,
+        terminal: flight.destination.terminal ?? av.destination.terminal,
+        gate:     flight.destination.gate     ?? av.destination.gate,
       },
     };
-  });
+  }
 
-  // Append AviationStack-only flights (e.g. future schedules not yet in FR24).
+  // 1. FR24 results as base (best for past/today)
+  const enrichedFr24 = fr24Flights.map(f => enrichFromAv(f, 'fr24'));
   const fr24Keys = new Set(fr24Flights.map(routeKey));
+
+  // 2. Amadeus results not already covered by FR24 (best for future)
+  const enrichedAmadeus = amadeusFlights
+    .filter(am => !fr24Keys.has(routeKey(am)))
+    .map(am => enrichFromAv(am, 'amadeus'));
+
+  const coveredKeys = new Set([...fr24Flights, ...amadeusFlights].map(routeKey));
+
+  // 3. AviationStack-only flights not covered by FR24 or Amadeus
   const avOnly = avFlights
-    .filter(av => !fr24Keys.has(routeKey(av)))
+    .filter(av => !coveredKeys.has(routeKey(av)))
     .map(av => ({ ...av, source: 'aviationstack' }));
 
-  const combined = [...enrichedFr24, ...avOnly];
+  const combined = [...enrichedFr24, ...enrichedAmadeus, ...avOnly];
 
   if (combined.length === 0) {
     return res.status(404).json({ error: 'No matching flight found' });
