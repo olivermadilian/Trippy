@@ -46,20 +46,158 @@ function localToUTC(localTimeStr, timezone) {
   }
 }
 
+/** Shared dedup helper — filters in-place by route+time key */
+function dedup(flights) {
+  const seen = new Set();
+  return flights.filter(f => {
+    const k = `${f.origin.code}-${f.destination.code}-${f.origin.scheduled || f.origin.scheduled_local}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
 /**
- * Look up flights by callsign using AviationStack Flights API.
- * Returns schedule data including airline name, terminal, gate, and local times.
+ * Map a /v1/flights response item to the shared flight shape.
+ * Field names: departure.iata, departure.scheduled, flight.iata, airline.iata …
+ */
+function mapCurrentFlight(f, clean) {
+  const dep = f.departure || {};
+  const arr = f.arrival || {};
+  const depScheduledLocal = dep.scheduled || null;
+  const arrScheduledLocal = arr.scheduled || null;
+  return {
+    fr24_id: null,
+    callsign: f.flight?.iata || clean,
+    carrier: f.airline?.name || null,
+    carrier_code: f.airline?.iata || clean.replace(/\d+/g, ''),
+    flight_ended: f.flight_status === 'landed',
+    origin: {
+      code: dep.iata || null,
+      icao: dep.icao || null,
+      airport: dep.airport || null,
+      city: null,
+      lat: null,
+      lng: null,
+      scheduled: localToUTC(depScheduledLocal, dep.timezone),
+      scheduled_local: depScheduledLocal,
+      terminal: dep.terminal || null,
+      gate: dep.gate || null,
+    },
+    destination: {
+      code: arr.iata || null,
+      icao: arr.icao || null,
+      airport: arr.airport || null,
+      city: null,
+      lat: null,
+      lng: null,
+      scheduled: localToUTC(arrScheduledLocal, arr.timezone),
+      scheduled_local: arrScheduledLocal,
+      terminal: arr.terminal || null,
+      gate: arr.gate || null,
+    },
+    aircraft: null,
+    aircraft_type: null,
+    status: f.flight_status || 'scheduled',
+    flight_date: f.flight_date || (depScheduledLocal ? depScheduledLocal.split('T')[0] : null),
+    flight_time: null,
+    actual_distance_km: null,
+    circle_distance_km: null,
+    category: null,
+    source: 'aviationstack',
+  };
+}
+
+/**
+ * Map a /v1/flightsFuture response item to the shared flight shape.
+ * Field names differ: departure.iataCode, departure.scheduledTime, flight.iataNumber …
+ * No timezone is provided, so scheduled_local holds the raw local time string.
+ */
+function mapFutureFlight(f, clean, date) {
+  const dep = f.departure || {};
+  const arr = f.arrival || {};
+  const depLocal = dep.scheduledTime || null;
+  const arrLocal = arr.scheduledTime || null;
+  return {
+    fr24_id: null,
+    callsign: f.flight?.iataNumber || clean,
+    carrier: f.airline?.name || null,
+    carrier_code: f.airline?.iataCode || clean.replace(/\d+/g, ''),
+    flight_ended: false,
+    origin: {
+      code: dep.iataCode || null,
+      icao: dep.icaoCode || null,
+      airport: null,
+      city: null,
+      lat: null,
+      lng: null,
+      scheduled: null,        // no timezone info → can't derive UTC
+      scheduled_local: depLocal,
+      terminal: dep.terminal || null,
+      gate: dep.gate || null,
+    },
+    destination: {
+      code: arr.iataCode || null,
+      icao: arr.icaoCode || null,
+      airport: null,
+      city: null,
+      lat: null,
+      lng: null,
+      scheduled: null,
+      scheduled_local: arrLocal,
+      terminal: arr.terminal || null,
+      gate: arr.gate || null,
+    },
+    aircraft: null,
+    aircraft_type: null,
+    status: f.status || 'scheduled',
+    flight_date: date || (depLocal ? depLocal.split('T')[0] : null),
+    flight_time: null,
+    actual_distance_km: null,
+    circle_distance_km: null,
+    category: null,
+    source: 'aviationstack',
+  };
+}
+
+/**
+ * Look up flights by callsign using AviationStack.
+ *
+ * Routing:
+ *   - Future date  → /v1/flightsFuture  (scheduled data, paid plan, always HTTPS)
+ *   - Today / past → /v1/flights         (real-time/historical, free tier compatible)
  */
 async function lookupFlight(callsign, date) {
   const key = process.env.AVIATIONSTACK_API_KEY;
-  if (!key) return null; // No key configured — caller should fall back
+  if (!key) return null;
 
   const clean = callsign.toUpperCase().replace(/\s+/g, '');
+  const today = new Date().toISOString().split('T')[0];
+  const isFuture = date && date > today;
 
-  const params = {
-    access_key: key,
-    flight_iata: clean,
-  };
+  if (isFuture) {
+    // flightsFuture requires a paid plan and HTTPS regardless of the global setting
+    const base = 'https://api.aviationstack.com/v1';
+    try {
+      const response = await axios.get(`${base}/flightsFuture`, {
+        params: { access_key: key, flight_iata: clean, date },
+        timeout: 12000,
+      });
+      const flights = response.data?.data;
+      if (!flights || flights.length === 0) return null;
+      return dedup(flights.map(f => mapFutureFlight(f, clean, date)));
+    } catch (err) {
+      if (err.response?.status === 429) {
+        throw new Error('Flight lookup rate limit exceeded. Try again later.');
+      }
+      // 403/402 means the plan doesn't support flightsFuture — log and return null
+      console.error('[aviationstack] Future lookup error:', err.response?.status, err.message);
+      return null;
+    }
+  }
+
+  // Current / historical flights
+  const params = { access_key: key, flight_iata: clean };
   if (date) params.flight_date = date;
 
   try {
@@ -67,76 +205,15 @@ async function lookupFlight(callsign, date) {
       params,
       timeout: 12000,
     });
-
     const flights = response.data?.data;
     if (!flights || flights.length === 0) return null;
-
-    const mapped = flights.map(f => {
-      const dep = f.departure || {};
-      const arr = f.arrival || {};
-
-      // Convert local scheduled times to UTC using airport timezones
-      const depScheduledLocal = dep.scheduled || null;
-      const arrScheduledLocal = arr.scheduled || null;
-      const depUTC = localToUTC(depScheduledLocal, dep.timezone);
-      const arrUTC = localToUTC(arrScheduledLocal, arr.timezone);
-
-      return {
-        fr24_id: null,
-        callsign: f.flight?.iata || clean,
-        carrier: f.airline?.name || null,
-        carrier_code: f.airline?.iata || clean.replace(/\d+/g, ''),
-        flight_ended: f.flight_status === 'landed',
-        origin: {
-          code: dep.iata || null,
-          icao: dep.icao || null,
-          airport: dep.airport || null,
-          city: null, // AviationStack doesn't return city separately
-          lat: null,
-          lng: null,
-          scheduled: depUTC,
-          scheduled_local: depScheduledLocal,
-          terminal: dep.terminal || null,
-          gate: dep.gate || null,
-        },
-        destination: {
-          code: arr.iata || null,
-          icao: arr.icao || null,
-          airport: arr.airport || null,
-          city: null,
-          lat: null,
-          lng: null,
-          scheduled: arrUTC,
-          scheduled_local: arrScheduledLocal,
-          terminal: arr.terminal || null,
-          gate: arr.gate || null,
-        },
-        aircraft: null,
-        aircraft_type: null,
-        status: f.flight_status || 'scheduled',
-        flight_date: f.flight_date || (depScheduledLocal ? depScheduledLocal.split('T')[0] : null),
-        flight_time: null,
-        actual_distance_km: null,
-        circle_distance_km: null,
-        category: null,
-        source: 'aviationstack',
-      };
-    });
-
-    // Deduplicate by route + departure time
-    const seen = new Set();
-    return mapped.filter(f => {
-      const key = `${f.origin.code}-${f.destination.code}-${f.origin.scheduled}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+    return dedup(flights.map(f => mapCurrentFlight(f, clean)));
   } catch (err) {
     if (err.response?.status === 429) {
       throw new Error('Flight lookup rate limit exceeded. Try again later.');
     }
     console.error('[aviationstack] Lookup error:', err.message);
-    return null; // Return null so caller can fall back to FR24
+    return null;
   }
 }
 
