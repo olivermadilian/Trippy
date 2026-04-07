@@ -548,11 +548,9 @@ function LandingPage({ onSignIn }) {
           {/* ── Runway ── */}
           <div style={{ position: 'absolute', left: 0, top: 0, width: isDesktop ? 170 : 140, height: '100%', background: '#060806', borderLeft: '2px solid #0a1a0a', borderRight: '1px solid #0a1a0a' }}>
             {/* Center dashes */}
-            <div style={{ position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)', width: 5, height: '100%', display: 'flex', flexDirection: 'column', gap: 20, paddingTop: 40 }}>
-              {Array.from({length: 25}, (_, i) => (
-                <div key={`rd-${i}`} style={{ width: 5, height: 40, background: '#1a2a1a', borderRadius: 1, flexShrink: 0 }}/>
-              ))}
-            </div>
+            {Array.from({length: 50}, (_, i) => (
+              <div key={`rd-${i}`} style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: `${2 + i * 1.96}%`, width: 5, height: 40, background: '#1a2a1a', borderRadius: 1 }}/>
+            ))}
             {/* Edge lights L */}
             {edgeTops.map((top, i) => (
               <div key={`el-l-${i}`} style={{ position: 'absolute', left: 6, top: `${top}%`, width: 5, height: 5, borderRadius: '50%', background: '#e8e4de', animation: `ew 3s ease-in-out infinite`, animationDelay: `${edgeDelaysL[i]}s` }}/>
@@ -634,19 +632,22 @@ function LandingPage({ onSignIn }) {
 
           {/* ── Train Track ── */}
           <div style={{ position: 'absolute', right: 0, top: 0, width: isDesktop ? 130 : 110, height: '100%', background: '#040404' }}>
-            <div style={{ position: 'absolute', left: 16, top: 0, width: 50, height: '100%', background: 'repeating-linear-gradient(to bottom, #060608 0px, #080810 2px, #060608 4px)', opacity: 0.5 }}/>
-            <div style={{ position: 'absolute', left: 20, top: 0, width: 42, height: '100%', background: 'repeating-linear-gradient(to bottom, transparent 0px, transparent 10px, #0c0c10 10px, #0c0c10 13px)' }}/>
-            <div style={{ position: 'absolute', top: 0, left: 30, width: 2, height: '100%', background: '#1e1e22' }}/>
-            <div style={{ position: 'absolute', top: 0, left: 50, width: 2, height: '100%', background: '#1e1e22' }}/>
-            {/* Signals */}
+            {/* Ballast — centered */}
+            <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: 0, width: 50, height: '100%', background: 'repeating-linear-gradient(to bottom, #060608 0px, #080810 2px, #060608 4px)', opacity: 0.5 }}/>
+            {/* Ties — centered */}
+            <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: 0, width: 42, height: '100%', background: 'repeating-linear-gradient(to bottom, transparent 0px, transparent 10px, #0c0c10 10px, #0c0c10 13px)' }}/>
+            {/* Rails — centered ±10px */}
+            <div style={{ position: 'absolute', top: 0, left: 'calc(50% - 10px)', width: 2, height: '100%', background: '#1e1e22' }}/>
+            <div style={{ position: 'absolute', top: 0, left: 'calc(50% + 10px)', width: 2, height: '100%', background: '#1e1e22' }}/>
+            {/* Signals — right of center */}
             {[{top:'18%',g:true},{top:'42%',g:false},{top:'65%',g:true}].map((s, i) => (
-              <div key={`tsig-${i}`} style={{ position: 'absolute', left: 60, top: s.top, display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <div key={`tsig-${i}`} style={{ position: 'absolute', left: 'calc(50% + 22px)', top: s.top, display: 'flex', flexDirection: 'column', gap: 3 }}>
                 <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#22c55e', opacity: s.g ? 1 : 0.1, animation: s.g ? 'sg 4s ease-in-out infinite' : 'none' }}/>
                 <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#e84233', opacity: s.g ? 0.1 : 1, animation: !s.g ? 'sr 4s ease-in-out infinite' : 'none' }}/>
               </div>
             ))}
-            {/* Train */}
-            <div style={{ position: 'absolute', left: 26, animation: 'trainMove 18s linear infinite' }}>
+            {/* Train — centered on rails */}
+            <div style={{ position: 'absolute', left: '50%', transform: 'translateX(-50%)', animation: 'trainMove 18s linear infinite' }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                 <div style={{ width: 24, height: 36, borderRadius: '7px 7px 2px 2px', position: 'relative', background: 'linear-gradient(to bottom, #d4628a, #a84068)' }}>
                   <div style={{ position: 'absolute', top: 3, left: '50%', transform: 'translateX(-50%)', width: 7, height: 7, borderRadius: '50%', background: '#f0d0e0', boxShadow: '0 0 12px rgba(212,98,138,0.8), 0 0 28px rgba(212,98,138,0.4)' }}/>
@@ -675,7 +676,7 @@ function LandingPage({ onSignIn }) {
         <section style={{ padding: isDesktop ? '100px 0 60px' : '90px 20px 40px', maxWidth: isDesktop ? 560 : 380 }}>
           <div style={{ marginBottom: 24 }}>
             {/* Line 1 track (bottom→top): FR → DE → EN. At -84: EN (State 1), -42: DE (State 2), 0: FR (State 3) */}
-            <div style={{ display: 'block', height: heroLineH, overflow: 'hidden', position: 'relative', marginBottom: 4 }}>
+            <div style={{ display: 'block', height: heroLineH, overflowX: 'visible', overflowY: 'clip', position: 'relative', marginBottom: 4 }}>
               <div style={{ display: 'flex', flexDirection: 'column', animation: `${slideAnim} 9s cubic-bezier(0.4, 0, 0.2, 1) infinite`, transform: `translateY(-${heroLineH * 2}px)` }}>
                 <div style={{ fontSize: isDesktop ? 44 : 'clamp(22px, 7vw, 28px)', fontWeight: 700, letterSpacing: -0.5, lineHeight: `${heroLineH}px`, whiteSpace: 'nowrap', flexShrink: 0, height: heroLineH, color: '#d4c8ff', fontFamily: FONT }}>Suivez vols et trains.</div>
                 <div style={{ fontSize: isDesktop ? 44 : 'clamp(22px, 7vw, 28px)', fontWeight: 700, letterSpacing: -0.5, lineHeight: `${heroLineH}px`, whiteSpace: 'nowrap', flexShrink: 0, height: heroLineH, color: '#c8e0ff', fontFamily: FONT }}>Fl&uuml;ge und Z&uuml;ge tracken.</div>
@@ -683,7 +684,7 @@ function LandingPage({ onSignIn }) {
               </div>
             </div>
             {/* Line 2 track (bottom→top): DE → EN → FR. At -84: FR (State 1), -42: EN (State 2), 0: DE (State 3) */}
-            <div style={{ display: 'block', height: heroLineH, overflow: 'hidden', position: 'relative', marginBottom: 4 }}>
+            <div style={{ display: 'block', height: heroLineH, overflowX: 'visible', overflowY: 'clip', position: 'relative', marginBottom: 4 }}>
               <div style={{ display: 'flex', flexDirection: 'column', animation: `${slideAnim} 9s cubic-bezier(0.4, 0, 0.2, 1) infinite`, transform: `translateY(-${heroLineH * 2}px)` }}>
                 <div style={{ fontSize: isDesktop ? 44 : 'clamp(22px, 7vw, 28px)', fontWeight: 700, letterSpacing: -0.5, lineHeight: `${heroLineH}px`, whiteSpace: 'nowrap', flexShrink: 0, height: heroLineH, color: '#c8e0ff', fontFamily: FONT }}>Ein Code pro Reise.</div>
                 <div style={{ fontSize: isDesktop ? 44 : 'clamp(22px, 7vw, 28px)', fontWeight: 700, letterSpacing: -0.5, lineHeight: `${heroLineH}px`, whiteSpace: 'nowrap', flexShrink: 0, height: heroLineH, color: '#e8e4de', fontFamily: FONT }}>Every trip gets a code.</div>
@@ -691,7 +692,7 @@ function LandingPage({ onSignIn }) {
               </div>
             </div>
             {/* Line 3 track (bottom→top): EN → FR → DE. At -84: DE (State 1), -42: FR (State 2), 0: EN (State 3) */}
-            <div style={{ display: 'block', height: heroLineH, overflow: 'hidden', position: 'relative', marginBottom: 4 }}>
+            <div style={{ display: 'block', height: heroLineH, overflowX: 'visible', overflowY: 'clip', position: 'relative', marginBottom: 4 }}>
               <div style={{ display: 'flex', flexDirection: 'column', animation: `${slideAnim} 9s cubic-bezier(0.4, 0, 0.2, 1) infinite`, transform: `translateY(-${heroLineH * 2}px)` }}>
                 <div style={{ fontSize: isDesktop ? 44 : 'clamp(22px, 7vw, 28px)', fontWeight: 700, letterSpacing: -0.5, lineHeight: `${heroLineH}px`, whiteSpace: 'nowrap', flexShrink: 0, height: heroLineH, color: '#e8e4de', fontFamily: FONT }}>Follow your people.</div>
                 <div style={{ fontSize: isDesktop ? 44 : 'clamp(22px, 7vw, 28px)', fontWeight: 700, letterSpacing: -0.5, lineHeight: `${heroLineH}px`, whiteSpace: 'nowrap', flexShrink: 0, height: heroLineH, color: '#d4c8ff', fontFamily: FONT }}>Suivez vos proches.</div>
@@ -828,6 +829,7 @@ function LandingPage({ onSignIn }) {
 // ═══════════════════════════════════════════════════════════════════
 
 const PRE_LAUNCH = true; // flip to false on launch day
+const PRE_LAUNCH_BYPASS = ['jgmadilian@gmail.com', 'omadilian@gmail.com'];
 
 function PreLaunchConfirmation({ onSignOut }) {
   return (
@@ -3751,7 +3753,7 @@ function TransponderApp() {
 
   if (authLoading) return <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg-primary)" }}><Spinner /></div>;
   if (!user) return <LandingPage onSignIn={signIn} />;
-  if (PRE_LAUNCH) return <PreLaunchConfirmation onSignOut={signOut} />;
+  if (PRE_LAUNCH && !PRE_LAUNCH_BYPASS.includes(user.email)) return <PreLaunchConfirmation onSignOut={signOut} />;
 
   const isFullWidth = route.page === "detail" || route.page === "dashboard" || route.page === "shared";
   return (
