@@ -2321,46 +2321,199 @@ function MiniMap({ lat, lng, zoom = 15, height = 140, label }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// SATELLITE MAP (interactive Google Maps trip route)
+// GOOGLE MAPS — cloud-based styled trip map (radar + satellite modes)
 // ═══════════════════════════════════════════════════════════════════
 
-function SatelliteMap({ trip, height = 280 }) {
-  const embedUrl = useMemo(() => {
-    if (!trip?.legs?.length) return null;
-    // Collect unique waypoint coordinates
-    const points = [];
-    trip.legs.forEach(leg => {
-      if (leg.origin?.lat != null && leg.origin?.lat !== 0) {
-        const key = `${leg.origin.lat.toFixed(4)},${leg.origin.lng.toFixed(4)}`;
-        if (!points.find(p => p.key === key)) points.push({ key, name: leg.origin.code || leg.origin.city || `${leg.origin.lat},${leg.origin.lng}` });
-      }
-      if (leg.destination?.lat != null && leg.destination?.lat !== 0) {
-        const key = `${leg.destination.lat.toFixed(4)},${leg.destination.lng.toFixed(4)}`;
-        if (!points.find(p => p.key === key)) points.push({ key, name: leg.destination.code || leg.destination.city || `${leg.destination.lat},${leg.destination.lng}` });
-      }
+const RADAR_MAP_ID     = '5db682accfbbf1e95f361496';
+const SATELLITE_MAP_ID = '5db682accfbbf1e9fd5ecbb1';
+const GM_ROUTE_COLOR   = '#22c55e';
+const GM_HOTEL_COLOR   = '#d4a017';
+
+// Singleton load — Maps JS API loads once per page session.
+let _gmPromise = null;
+function loadGoogleMaps() {
+  if (_gmPromise) return _gmPromise;
+  _gmPromise = new Promise((resolve, reject) => {
+    if (window.google?.maps?.Map) { resolve(); return; }
+    const key = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+    if (!key) { _gmPromise = null; reject(new Error('VITE_GOOGLE_MAPS_API_KEY not configured')); return; }
+    const cbName = '__gmInit_' + Date.now();
+    window[cbName] = () => { delete window[cbName]; resolve(); };
+    const s = document.createElement('script');
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=marker&v=weekly&callback=${cbName}`;
+    s.async = true;
+    s.onerror = () => { _gmPromise = null; reject(new Error('Maps JS API failed to load')); };
+    document.head.appendChild(s);
+  });
+  return _gmPromise;
+}
+
+/** Great-circle arc points for flight paths ({lat, lng}[]). */
+function gcPoints(o, d, n = 80) {
+  const R = Math.PI / 180;
+  const lat1 = o.lat * R, lon1 = o.lng * R, lat2 = d.lat * R, lon2 = d.lng * R;
+  const dist = 2 * Math.asin(Math.sqrt(
+    Math.sin((lat2 - lat1) / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin((lon2 - lon1) / 2) ** 2
+  ));
+  if (dist < 0.001) return [{ lat: o.lat, lng: o.lng }, { lat: d.lat, lng: d.lng }];
+  return Array.from({ length: n + 1 }, (_, i) => {
+    const f = i / n, A = Math.sin((1 - f) * dist) / Math.sin(dist), B = Math.sin(f * dist) / Math.sin(dist);
+    const x = A * Math.cos(lat1) * Math.cos(lon1) + B * Math.cos(lat2) * Math.cos(lon2);
+    const y = A * Math.cos(lat1) * Math.sin(lon1) + B * Math.cos(lat2) * Math.sin(lon2);
+    const z = A * Math.sin(lat1) + B * Math.sin(lat2);
+    return { lat: Math.atan2(z, Math.sqrt(x * x + y * y)) / R, lng: Math.atan2(y, x) / R };
+  });
+}
+
+function clearGmOverlay(o) {
+  if (!o) return;
+  if (typeof o.setMap === 'function') o.setMap(null); // Circle, Polyline
+  else if ('map' in o) o.map = null;                  // AdvancedMarkerElement
+}
+
+function drawGmOverlays(map, trip, overlays) {
+  const G  = window.google.maps;
+  const AM = G.marker?.AdvancedMarkerElement;
+  const legs = trip.legs || [];
+
+  // Hotel glow circles
+  legs.forEach(leg => {
+    if (leg.type !== 'hotel' || !leg.origin?.lat) return;
+    const c = { lat: leg.origin.lat, lng: leg.origin.lng };
+    overlays.push(
+      new G.Circle({ map, center: c, radius: 90000, fillOpacity: 0, strokeColor: GM_HOTEL_COLOR, strokeOpacity: 0.2,  strokeWeight: 1 }),
+      new G.Circle({ map, center: c, radius: 28000, fillColor: GM_HOTEL_COLOR, fillOpacity: 0.1, strokeColor: GM_HOTEL_COLOR, strokeOpacity: 0.35, strokeWeight: 1 })
+    );
+  });
+
+  // Route lines — first leg solid, subsequent legs dashed
+  let firstRoute = true;
+  legs.forEach(leg => {
+    if (leg.type === 'hotel') return;
+    const o = leg.origin, d = leg.destination;
+    if (!o?.lat || !d?.lat || (o.lat === d.lat && o.lng === d.lng)) return;
+    const path = leg.type === 'flight'
+      ? gcPoints(o, d)
+      : [{ lat: o.lat, lng: o.lng }, { lat: d.lat, lng: d.lng }];
+    if (firstRoute) {
+      overlays.push(new G.Polyline({ map, path, geodesic: false, strokeColor: GM_ROUTE_COLOR, strokeOpacity: 0.85, strokeWeight: 2.5 }));
+      firstRoute = false;
+    } else {
+      overlays.push(new G.Polyline({
+        map, path, geodesic: false, strokeOpacity: 0,
+        icons: [{ icon: { path: 'M 0,-1 0,1', strokeOpacity: 0.3, strokeColor: GM_ROUTE_COLOR, scale: 2 }, offset: '0', repeat: '14px' }],
+      }));
+    }
+  });
+
+  // Unique waypoint markers + labels
+  const waypoints = new Map();
+  legs.forEach(leg => {
+    if (leg.origin?.lat)      waypoints.set(`${leg.origin.lat},${leg.origin.lng}`,           leg.origin);
+    if (leg.destination?.lat) waypoints.set(`${leg.destination.lat},${leg.destination.lng}`, leg.destination);
+  });
+
+  waypoints.forEach(pt => {
+    const pos = { lat: pt.lat, lng: pt.lng };
+    // Three concentric rings — outer glow, inner ring, filled centre dot
+    overlays.push(
+      new G.Circle({ map, center: pos, radius: 55000, fillOpacity: 0, strokeColor: GM_ROUTE_COLOR, strokeOpacity: 0.12, strokeWeight: 1 }),
+      new G.Circle({ map, center: pos, radius: 27000, fillOpacity: 0, strokeColor: GM_ROUTE_COLOR, strokeOpacity: 0.32, strokeWeight: 1 }),
+      new G.Circle({ map, center: pos, radius: 10000, fillColor: GM_ROUTE_COLOR, fillOpacity: 1, strokeColor: '#000', strokeOpacity: 0.45, strokeWeight: 1.5 })
+    );
+    // IATA / city label above the dot — AdvancedMarkerElement anchors at bottom-centre,
+    // so paddingBottom lifts the visible text above the geographic pin point.
+    const code = pt.code || pt.city?.slice(0, 3)?.toUpperCase() || '';
+    if (code && AM) {
+      const el = document.createElement('div');
+      el.textContent = code;
+      el.style.cssText = `font-family:${FONT};font-size:11px;font-weight:600;letter-spacing:1px;color:${GM_ROUTE_COLOR};text-shadow:0 0 8px rgba(34,197,94,0.45);padding-bottom:20px;pointer-events:none;white-space:nowrap;`;
+      overlays.push(new AM({ map, position: pos, content: el }));
+    }
+  });
+}
+
+/**
+ * GoogleTripMap — renders a Google Maps JS API instance styled via cloud-based
+ * Map IDs.  Handles both RADAR and SATELLITE modes; switching modes destroys and
+ * recreates the map (mapId cannot be changed after init) while preserving the
+ * current viewport centre/zoom.
+ */
+function GoogleTripMap({ trip, mapView, height = 280 }) {
+  const containerRef = useRef(null);
+  const mapRef       = useRef(null);
+  const overlaysRef  = useRef([]);
+  const savedState   = useRef(null); // { center, zoom } — persists across mode switches
+  const [mapsReady, setMapsReady] = useState(() => !!window.google?.maps?.Map);
+  const [loadError,  setLoadError]  = useState(null);
+
+  useEffect(() => {
+    loadGoogleMaps()
+      .then(() => setMapsReady(true))
+      .catch(err => setLoadError(err.message));
+  }, []);
+
+  useEffect(() => {
+    if (!mapsReady || !containerRef.current || !trip?.legs?.length) return;
+
+    // Capture viewport before destroying the outgoing map
+    if (mapRef.current) {
+      const c = mapRef.current.getCenter();
+      if (c) savedState.current = { center: c.toJSON(), zoom: mapRef.current.getZoom() };
+    }
+
+    // Detach previous overlays before the new map takes over the container
+    overlaysRef.current.forEach(clearGmOverlay);
+    overlaysRef.current = [];
+
+    const G = window.google.maps;
+    const map = new G.Map(containerRef.current, {
+      mapId:      mapView === 'satellite' ? SATELLITE_MAP_ID : RADAR_MAP_ID,
+      mapTypeId:  mapView === 'satellite' ? 'hybrid' : 'roadmap',
+      backgroundColor: '#000000',
+      mapTypeControl:   false,
+      streetViewControl: false,
+      fullscreenControl: false,
+      zoomControlOptions: { position: G.ControlPosition.RIGHT_BOTTOM },
+      gestureHandling: 'greedy',
+      center: savedState.current?.center ?? { lat: 20, lng: 0 },
+      zoom:   savedState.current?.zoom   ?? 3,
     });
-    if (points.length === 0) return null;
-    if (points.length === 1) return `https://maps.google.com/maps?q=${points[0].key}&t=k&z=10&output=embed`;
-    // Center on midpoint, show satellite imagery with markers
-    const lats = points.map(p => parseFloat(p.key.split(",")[0]));
-    const lngs = points.map(p => parseFloat(p.key.split(",")[1]));
-    const cLat = ((Math.min(...lats) + Math.max(...lats)) / 2).toFixed(4);
-    const cLng = ((Math.min(...lngs) + Math.max(...lngs)) / 2).toFixed(4);
-    const markers = points.map(p => `markers=${encodeURIComponent(p.key)}`).join("&");
-    return `https://maps.google.com/maps?q=${cLat},${cLng}&t=k&z=4&output=embed`;
-  }, [trip?.id, trip?.legs?.length]);
+    mapRef.current = map;
 
-  if (!embedUrl) return (
-    <div style={{ width: "100%", height, display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg-surface)" }}>
-      <p style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>No coordinates available</p>
+    // Fit bounds only on first render — mode toggles preserve the viewport
+    if (!savedState.current) {
+      const bounds = new G.LatLngBounds();
+      let hasPoints = false;
+      trip.legs.forEach(leg => {
+        if (leg.origin?.lat && leg.origin?.lng)           { bounds.extend({ lat: leg.origin.lat,      lng: leg.origin.lng      }); hasPoints = true; }
+        if (leg.destination?.lat && leg.destination?.lng) { bounds.extend({ lat: leg.destination.lat, lng: leg.destination.lng }); hasPoints = true; }
+      });
+      if (hasPoints) {
+        if (bounds.getNorthEast().equals(bounds.getSouthWest())) { map.setCenter(bounds.getCenter()); map.setZoom(10); }
+        else map.fitBounds(bounds, 60);
+      }
+    }
+
+    // Draw overlays after the first tiles are loaded
+    const idleListener = map.addListener('idle', () => {
+      G.event.removeListener(idleListener);
+      drawGmOverlays(map, trip, overlaysRef.current);
+    });
+
+    return () => { G.event.removeListener(idleListener); };
+  }, [mapsReady, mapView, trip?.id, trip?.legs?.length]);
+
+  // Full cleanup on unmount
+  useEffect(() => () => { overlaysRef.current.forEach(clearGmOverlay); }, []);
+
+  if (loadError) return (
+    <div style={{ width: '100%', height, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-surface)' }}>
+      <p style={{ fontFamily: FONT, fontSize: '9px', color: 'var(--text-tertiary)', letterSpacing: '1px' }}>{loadError}</p>
     </div>
   );
 
-  return (
-    <div style={{ width: "100%", height, position: "relative", background: "var(--bg-surface)", overflow: "hidden" }}>
-      <iframe src={embedUrl} style={{ width: "100%", height: "100%", border: "none" }} loading="lazy" referrerPolicy="no-referrer-when-downgrade" title="Trip route map" />
-    </div>
-  );
+  return <div ref={containerRef} style={{ width: '100%', height, background: '#000' }} />;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2710,11 +2863,7 @@ function DetailPage({ tripId }) {
 
   const mapSection = (
     <div style={{ height: isDesktop ? "100%" : "260px", minHeight: "200px" }}>
-      {mapView === "satellite" ? (
-        <SatelliteMap trip={trip} height={isDesktop ? "100%" : 260} />
-      ) : (
-        <TripMap trip={trip} activeLegIndex={activeLeg} mode={mode} liveTrackData={liveTrackData} mapTick={mapTick} />
-      )}
+      <GoogleTripMap trip={trip} mapView={mapView} height={isDesktop ? "100%" : 260} />
     </div>
   );
 
@@ -3522,11 +3671,7 @@ function SharedPage({ tripId }) {
 
   const sharedMapSection = (
     <div style={{ height: isDesktop ? "100%" : 220, margin: isDesktop ? 0 : "0 16px", borderRadius: isDesktop ? 0 : 8, overflow: "hidden", border: isDesktop ? "none" : "1px solid var(--border-primary)" }}>
-      {mapView === "satellite" ? (
-        <SatelliteMap trip={trip} height={isDesktop ? "100%" : 220} />
-      ) : (
-        <TripMap trip={trip} activeLegIndex={activeLeg} mode={mode} isSharedView liveTrackData={null} mapTick={0} />
-      )}
+      <GoogleTripMap trip={trip} mapView={mapView} height={isDesktop ? "100%" : 220} />
     </div>
   );
 
