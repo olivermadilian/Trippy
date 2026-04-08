@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from "react";
 import * as d3 from "d3";
 import { supabase } from "./supabase";
 import * as topojson from "topojson-client";
