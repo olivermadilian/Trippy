@@ -319,19 +319,24 @@ function formatDate(iso) {
   const d = new Date(ds + "T12:00:00"); // noon avoids date shift
   return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
-// Duration: prefer distance-based estimate for flights (avoids cross-timezone errors)
+// Duration: use actual timestamps when available (trains, API-looked-up flights).
+// Fall back to distance-based flight estimate only when times are absent.
 function formatDuration(d, a, origin, destination) {
+  if (d && a) {
+    const ms = new Date(a) - new Date(d);
+    if (ms > 0) {
+      const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
+      return h > 0 ? `${h}H ${m}M` : `${m}M`;
+    }
+  }
+  // No reliable timestamps — estimate from straight-line distance at cruise speed
   if (origin?.lat && destination?.lat && origin.lat !== 0 && destination.lat !== 0) {
     const nm = haversineNM(origin.lat, origin.lng, destination.lat, destination.lng);
     const hrs = nm / 460 + 0.5; // avg cruise speed + taxi/climb/descent
     const h = Math.floor(hrs), m = Math.round((hrs - h) * 60);
     return `~${h}H ${m}M`;
   }
-  if (!d || !a) return "";
-  const ms = new Date(a) - new Date(d);
-  if (ms <= 0) return "";
-  const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
-  return h > 0 ? `${h}H ${m}M` : `${m}M`;
+  return "";
 }
 function calcNights(leg) { if (leg.metadata?.nights) return leg.metadata.nights; if (!leg.depart_time || !leg.arrive_time) return 1; const ci = leg.depart_time.split("T")[0], co = leg.arrive_time.split("T")[0]; return Math.max(1, Math.round((new Date(co) - new Date(ci)) / 86400000)); }
 function interpolateGC(p1, p2, n = 60) { const i = d3.geoInterpolate(p1, p2); return Array.from({ length: n + 1 }, (_, k) => i(k / n)); }
