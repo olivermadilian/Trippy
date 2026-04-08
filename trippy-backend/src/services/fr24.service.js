@@ -449,18 +449,19 @@ async function lookupFlight(callsign, date) {
   const clean = callsign.toUpperCase().replace(/\s+/g, '');
 
   // Build date range: if date provided, use that day; otherwise use today ± 1 day
+  // Always include 'Z' so FR24 knows these are UTC datetimes.
   let dateFrom, dateTo;
   if (date) {
-    dateFrom = `${date}T00:00:00`;
-    dateTo = `${date}T23:59:59`;
+    dateFrom = `${date}T00:00:00Z`;
+    dateTo = `${date}T23:59:59Z`;
   } else {
     const now = new Date();
     const yesterday = new Date(now);
     yesterday.setUTCDate(yesterday.getUTCDate() - 1);
     const tomorrow = new Date(now);
     tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-    dateFrom = yesterday.toISOString().replace(/\.\d{3}Z$/, '');
-    dateTo = tomorrow.toISOString().replace(/\.\d{3}Z$/, '');
+    dateFrom = yesterday.toISOString().slice(0, 19) + 'Z';
+    dateTo = tomorrow.toISOString().slice(0, 19) + 'Z';
   }
 
   try {
