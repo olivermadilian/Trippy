@@ -1984,20 +1984,43 @@ function haversineNM(lat1, lon1, lat2, lon2) {
   const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) / 1.852;
 }
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const R = 6371, toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 function computeTripStats(legs) {
-  let totalNM = 0, airHrs = 0, hotelNights = 0;
+  let totalNM = 0, totalKm = 0, airHrs = 0, trainMins = 0, hotelNights = 0, maxDelay = 0;
+  let hasFlights = false, hasTrains = false;
   (legs || []).forEach(l => {
     if (l.type === "hotel") { hotelNights += calcNights(l); return; }
-    if (l.origin?.lat != null && l.destination?.lat != null) {
-      const nm = haversineNM(l.origin.lat, l.origin.lng, l.destination.lat, l.destination.lng);
-      totalNM += nm;
-      // Only estimate air time for flights (not trains/buses)
-      if (l.type === "flight" && nm > 0) airHrs += nm / 460 + 0.5;
+    if (l.type === "flight") hasFlights = true;
+    if (l.type === "train" || l.type === "bus") hasTrains = true;
+    if (l.origin?.lat != null && l.destination?.lat != null && l.origin.lat !== 0 && l.destination.lat !== 0) {
+      if (l.type === "flight") {
+        const nm = haversineNM(l.origin.lat, l.origin.lng, l.destination.lat, l.destination.lng);
+        totalNM += nm;
+        if (nm > 0) airHrs += nm / 460 + 0.5;
+      } else {
+        totalKm += haversineKm(l.origin.lat, l.origin.lng, l.destination.lat, l.destination.lng);
+      }
     }
+    if ((l.type === "train" || l.type === "bus") && l.depart_time && l.arrive_time) {
+      const ms = new Date(l.arrive_time) - new Date(l.depart_time);
+      if (ms > 0) trainMins += ms / 60000;
+    }
+    if (l.metadata?.maxDelayMinutes) maxDelay = Math.max(maxDelay, l.metadata.maxDelayMinutes);
   });
   const airH = Math.floor(airHrs), airM = Math.round((airHrs - airH) * 60);
-  return { totalNM: Math.round(totalNM), airTime: airHrs > 0 ? `~${airH}H ${airM}M` : "0H", hotelNights };
+  const trainH = Math.floor(trainMins / 60), trainM = Math.round(trainMins % 60);
+  return {
+    totalNM: Math.round(totalNM), totalKm: Math.round(totalKm),
+    airTime: airHrs > 0 ? `~${airH}H ${airM}M` : "0H",
+    trainTime: trainMins > 0 ? (trainH > 0 ? `${trainH}H ${trainM}M` : `${trainM}M`) : "0H",
+    hotelNights, maxDelay, hasFlights, hasTrains,
+  };
 }
 
 function getCountdown(trip) {
@@ -2206,22 +2229,31 @@ function TripMap({ trip, activeLegIndex, mode, isSharedView, liveTrackData, mapT
 
 function StatsFooter({ legs }) {
   const stats = computeTripStats(legs);
+  const statBlocks = [];
+  // Distance: NM for flights, KM for trains/buses
+  if (stats.hasFlights) statBlocks.push({ value: stats.totalNM.toLocaleString(), label: "TOTAL NM", color: "var(--stats-value)" });
+  if (stats.hasTrains) statBlocks.push({ value: stats.totalKm.toLocaleString(), label: "KM", color: "var(--stats-value)" });
+  if (!stats.hasFlights && !stats.hasTrains) statBlocks.push({ value: "0", label: "TOTAL NM", color: "var(--stats-value)" });
+  // Time: Air time for flights, en route for trains
+  if (stats.hasFlights) statBlocks.push({ value: stats.airTime, label: "AIR TIME", color: "var(--stats-value)" });
+  if (stats.hasTrains) statBlocks.push({ value: stats.trainTime, label: "EN ROUTE", color: "var(--stats-value)" });
+  if (!stats.hasFlights && !stats.hasTrains) statBlocks.push({ value: "0H", label: "AIR TIME", color: "var(--stats-value)" });
+  // Third stat: ground time or delay
+  if (stats.hotelNights > 0) statBlocks.push({ value: `${stats.hotelNights}N`, label: "ON GROUND", color: "var(--accent-countdown)" });
+  else if (stats.hasTrains) statBlocks.push({ value: stats.maxDelay > 0 ? `+${stats.maxDelay}M` : "0", label: "DELAY", color: stats.maxDelay > 0 ? "var(--accent-countdown)" : "var(--stats-value)" });
+  else statBlocks.push({ value: "0N", label: "ON GROUND", color: "var(--accent-countdown)" });
+
   return (
     <div className="flex justify-around items-center mx-4 my-3 px-3 py-2.5" style={{ border: "1px solid var(--border-subtle)", borderRadius: "6px", background: "var(--bg-surface)" }}>
-      <div className="text-center">
-        <div style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 600, color: "var(--stats-value)" }}>{stats.totalNM.toLocaleString()}</div>
-        <div style={{ fontFamily: FONT, fontSize: "7px", letterSpacing: "2px", color: "var(--stats-label)", marginTop: 2 }}>TOTAL NM</div>
-      </div>
-      <div style={{ width: 1, height: 28, background: "var(--border-subtle)" }} />
-      <div className="text-center">
-        <div style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 600, color: "var(--stats-value)" }}>{stats.airTime}</div>
-        <div style={{ fontFamily: FONT, fontSize: "7px", letterSpacing: "2px", color: "var(--stats-label)", marginTop: 2 }}>AIR TIME</div>
-      </div>
-      <div style={{ width: 1, height: 28, background: "var(--border-subtle)" }} />
-      <div className="text-center">
-        <div style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 600, color: "var(--accent-countdown)" }}>{stats.hotelNights}N</div>
-        <div style={{ fontFamily: FONT, fontSize: "7px", letterSpacing: "2px", color: "var(--stats-label)", marginTop: 2 }}>ON GROUND</div>
-      </div>
+      {statBlocks.map((s, i) => (
+        <React.Fragment key={i}>
+          {i > 0 && <div style={{ width: 1, height: 28, background: "var(--border-subtle)" }} />}
+          <div className="text-center">
+            <div style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 600, color: s.color }}>{s.value}</div>
+            <div style={{ fontFamily: FONT, fontSize: "7px", letterSpacing: "2px", color: "var(--stats-label)", marginTop: 2 }}>{s.label}</div>
+          </div>
+        </React.Fragment>
+      ))}
     </div>
   );
 }
@@ -2395,6 +2427,7 @@ function DetailPage({ tripId }) {
   const [bTrainLoading, setBTrainLoading] = useState(false); const [bTrainResult, setBTrainResult] = useState(null);
   const [bTrainErr, setBTrainErr] = useState(null); const [bTrainOptions, setBTrainOptions] = useState(null);
   const [bTrainManual, setBTrainManual] = useState(false);
+  const [bBoardIdx, setBBoardIdx] = useState(null); const [bExitIdx, setBExitIdx] = useState(null);
   const resetBuilder = () => {
     const sd = trip?.start_date || "", ed = trip?.end_date || "";
     let defDate = sd;
@@ -2404,7 +2437,7 @@ function DetailPage({ tripId }) {
       if (endIso) { const d = new Date(endIso.split("T")[0]); d.setDate(d.getDate() + 1); defDate = d.toISOString().split("T")[0]; }
     }
     setBFN(""); setBLoading(false); setBAF(null); setBErr(null); setBFlightOptions(null); setBHN(""); setBHC(""); setBHI(defDate || sd); setBHO(ed); setBHPlace(null); setBO(""); setBD(""); setBDt(defDate || sd); setBTm(""); setBOPlace(null); setBDPlace(null);
-    setBTrainOp("amtrak"); setBTrainNum(""); setBTrainLoading(false); setBTrainResult(null); setBTrainErr(null); setBTrainOptions(null); setBTrainManual(false);
+    setBTrainOp("amtrak"); setBTrainNum(""); setBTrainLoading(false); setBTrainResult(null); setBTrainErr(null); setBTrainOptions(null); setBTrainManual(false); setBBoardIdx(null); setBExitIdx(null);
   };
   const typeCfg = { flight: { label: "FLIGHT", color: "var(--strip-flight)" }, hotel: { label: "GROUND STOP", color: "var(--strip-hotel)" }, train: { label: "TRAIN", color: "var(--strip-train)" }, bus: { label: "BUS", color: "var(--strip-bus)" } };
 
@@ -2439,7 +2472,7 @@ function DetailPage({ tripId }) {
     { id: "sncf", name: "SNCF", country: "FR", placeholder: "6213" },
     { id: "db", name: "Deutsche Bahn", country: "DE", placeholder: "ICE 123" },
   ];
-  const selectTrainDetail = (train) => { setBTrainResult(train); setBTrainOptions(null); };
+  const selectTrainDetail = (train) => { setBTrainResult(train); setBTrainOptions(null); setBBoardIdx(null); setBExitIdx(null); };
   const handleTrainQueryDetail = async () => {
     if (!bTrainNum.trim() || bTrainLoading) return;
     setBTrainLoading(true); setBTrainErr(null); setBTrainResult(null); setBTrainOptions(null);
@@ -2459,7 +2492,7 @@ function DetailPage({ tripId }) {
   const canConfirm = () => {
     if (bType === "flight") return !!bAF;
     if (bType === "hotel") return bHN.trim() && bHI;
-    if (bType === "train" && !bTrainManual) return !!bTrainResult;
+    if (bType === "train" && !bTrainManual) return !!bTrainResult && bBoardIdx != null && bExitIdx != null;
     return bO.trim() && bD.trim() && bDt;
   };
 
@@ -2467,7 +2500,23 @@ function DetailPage({ tripId }) {
     let newLeg;
     if (bType === "flight" && bAF) { newLeg = { type: "flight", origin: { code: bAF.origin.code, city: bAF.origin.airport, lat: 0, lng: 0 }, destination: { code: bAF.destination.code, city: bAF.destination.airport, lat: 0, lng: 0 }, depart_time: bAF.origin.scheduled, arrive_time: bAF.destination.scheduled, carrier: bAF.carrier, vehicle_number: bAF.callsign, metadata: { terminal: bAF.origin.terminal || null, gate: bAF.origin.gate || null, depart_local: bAF.origin.scheduled_local || null, arrive_local: bAF.destination.scheduled_local || null } }; }
     else if (bType === "hotel") { const nights = bHO ? Math.max(1, Math.round((new Date(bHO) - new Date(bHI)) / 86400000)) : 1; const hLat = bHPlace?.lat || 0; const hLng = bHPlace?.lng || 0; const hCity = bHPlace?.city || bHN; newLeg = { type: "hotel", origin: { code: null, city: hCity, lat: hLat, lng: hLng }, destination: { code: null, city: hCity, lat: hLat, lng: hLng }, depart_time: `${bHI}T15:00:00Z`, arrive_time: bHO ? `${bHO}T11:00:00Z` : `${bHI}T11:00:00Z`, carrier: bHN, vehicle_number: null, metadata: { nights, confirmation: bHC, address: bHPlace?.address || null } }; }
-    else if (bType === "train" && bTrainResult) { const tr = bTrainResult; const userStops = (tr.stops || []).length > 2 ? tr.stops.slice(1, -1) : []; newLeg = { type: "train", origin: { code: tr.origin.code || tr.origin.name, city: tr.origin.name, lat: tr.origin.lat || 0, lng: tr.origin.lng || 0 }, destination: { code: tr.destination.code || tr.destination.name, city: tr.destination.name, lat: tr.destination.lat || 0, lng: tr.destination.lng || 0 }, depart_time: tr.origin.scheduled_departure, arrive_time: tr.destination.scheduled_arrival, carrier: tr.operator_name || bTrainOp, vehicle_number: tr.train_number, metadata: { operator: tr.operator, route_name: tr.route_name, platform: tr.origin.platform, stops: userStops, depart_local: tr.origin.scheduled_departure, arrive_local: tr.destination.scheduled_arrival } }; }
+    else if (bType === "train" && bTrainResult) {
+      const tr = bTrainResult;
+      const allStops = tr.stops || [];
+      const bi = bBoardIdx != null ? bBoardIdx : 0;
+      const ei = bExitIdx != null ? bExitIdx : allStops.length - 1;
+      const boardStop = allStops[bi] || {};
+      const exitStop = allStops[ei] || {};
+      const depTime = boardStop.scheduledDeparture || tr.origin?.scheduled_departure;
+      const arrTime = exitStop.scheduledArrival || tr.destination?.scheduled_arrival;
+      const oName = boardStop.stationName || tr.origin?.name || "?";
+      const dName = exitStop.stationName || tr.destination?.name || "?";
+      const oLat = boardStop.lat || tr.origin?.lat || 0;
+      const oLon = boardStop.lon || boardStop.lng || tr.origin?.lng || 0;
+      const dLat = exitStop.lat || tr.destination?.lat || 0;
+      const dLon = exitStop.lon || exitStop.lng || tr.destination?.lng || 0;
+      newLeg = { type: "train", origin: { code: oName, city: oName, lat: oLat, lng: oLon }, destination: { code: dName, city: dName, lat: dLat, lng: dLon }, depart_time: depTime, arrive_time: arrTime, carrier: tr.operatorName || tr.operator_name || bTrainOp, vehicle_number: tr.trainNumber || tr.train_number, metadata: { operator: tr.operator || "sncf", route_name: tr.routeName || tr.route_name, serviceType: tr.serviceType, platform: boardStop.platformNumber || null, depart_local: depTime, arrive_local: arrTime, boardStopIndex: bi, exitStopIndex: ei, journeyStops: allStops, fullRoute: tr.fullRoute || null } };
+    }
     else { const oLat = bOPlace?.lat || 0; const oLng = bOPlace?.lng || 0; const dLat = bDPlace?.lat || 0; const dLng = bDPlace?.lng || 0; const oCity = bOPlace?.city || bO; const dCity = bDPlace?.city || bD; newLeg = { type: bType, origin: { code: bO.slice(0, 3).toUpperCase(), city: oCity, lat: oLat, lng: oLng }, destination: { code: bD.slice(0, 3).toUpperCase(), city: dCity, lat: dLat, lng: dLng }, depart_time: `${bDt}T${bTm || "08:00"}:00Z`, arrive_time: `${bDt}T12:00:00Z`, carrier: bType === "train" ? "Train" : "Bus", vehicle_number: null, metadata: bType === "train" ? { operator: bTrainOp } : {} }; }
     try {
       const created = await api(`/trips/${trip.id}/legs`, { method: "POST", body: JSON.stringify(legToApi(newLeg)) });
@@ -2497,7 +2546,7 @@ function DetailPage({ tripId }) {
           const stripColor = STRIP_COLORS[leg.type] || "var(--strip-flight)";
           const isDeleting = confirmDelete === leg.id;
           const cardBg = isHotel ? "var(--bg-card-hotel)" : "var(--bg-card)";
-          const dur = isHotel ? "" : formatDuration(leg.depart_time, leg.arrive_time, leg.origin, leg.destination);
+          const dur = isHotel ? "" : formatDuration(leg.depart_time, leg.arrive_time, leg.origin, leg.destination, leg.type);
           const nights = isHotel ? calcNights(leg) : 0;
           return (
             <div key={leg.id} className="flex">
@@ -2541,7 +2590,12 @@ function DetailPage({ tripId }) {
                       </div>
                       <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{formatDate(leg.depart_time)}</span>
                     </div>
-                    {leg.type === "train" ? (
+                    {leg.type === "train" ? (() => {
+                      const jStops = leg.metadata?.journeyStops || [];
+                      const bi = leg.metadata?.boardStopIndex ?? 0;
+                      const ei = leg.metadata?.exitStopIndex ?? (jStops.length - 1);
+                      const hasRouteStrip = jStops.length > 1;
+                      return (
                       <>
                         <div className="flex items-center justify-between mb-1">
                           <span style={{ fontFamily: FONT, fontSize: "16px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "1px", maxWidth: "40%", lineHeight: 1.2 }}>{leg.origin?.city || leg.origin?.code || "?"}</span>
@@ -2555,33 +2609,73 @@ function DetailPage({ tripId }) {
                           <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{legDepartTime(leg)}</span>
                           <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{legArriveTime(leg)}</span>
                         </div>
-                        {leg.metadata?.stops?.length > 0 && (
+                        {/* Horizontal route strip */}
+                        {hasRouteStrip && (
+                          <div className="mb-2 pt-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+                            <div className="flex items-center" style={{ position: "relative", height: 20, padding: "0 4px" }}>
+                              {/* Full route line (gray) */}
+                              <div style={{ position: "absolute", top: 8, left: 4, right: 4, height: 2, background: "var(--border-subtle)", borderRadius: 1 }} />
+                              {/* User segment line (green) */}
+                              {jStops.length > 1 && <div style={{ position: "absolute", top: 7, left: `calc(4px + ${(bi / (jStops.length - 1)) * 100}% * (1 - 8px / 100%))`, width: `${((ei - bi) / (jStops.length - 1)) * 100}%`, height: 3, background: "var(--strip-train)", borderRadius: 1.5, zIndex: 1 }} />}
+                              {/* Stop dots */}
+                              <div style={{ position: "relative", width: "100%", display: "flex", justifyContent: "space-between" }}>
+                                {jStops.map((s, si) => {
+                                  const isB = si === bi, isE = si === ei;
+                                  const inSeg = si >= bi && si <= ei;
+                                  const dim = !inSeg;
+                                  const sz = (isB || isE) ? 8 : 6;
+                                  return <div key={si} style={{ width: sz, height: sz, borderRadius: "50%", background: (isB || isE) ? "var(--strip-train)" : dim ? "var(--border-subtle)" : "var(--bg-card)", border: `2px solid ${dim ? "var(--text-tertiary)" : "var(--strip-train)"}`, zIndex: 2, boxShadow: (isB || isE) ? "0 0 6px rgba(34,197,94,0.4)" : "none", flexShrink: 0 }} />;
+                                })}
+                              </div>
+                            </div>
+                            {/* Station labels */}
+                            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2, padding: "0 0" }}>
+                              {jStops.map((s, si) => {
+                                const isB = si === bi, isE = si === ei;
+                                const inSeg = si >= bi && si <= ei;
+                                // Only show label for board, exit, first, last, and maybe one mid stop
+                                const showLabel = isB || isE || si === 0 || si === jStops.length - 1;
+                                if (!showLabel) return <span key={si} style={{ flex: 1 }} />;
+                                const shortName = (s.stationName || "").split(/[\s-]/)[0].slice(0, 6);
+                                return <span key={si} style={{ fontFamily: FONT, fontSize: "6px", color: (isB || isE) ? "var(--strip-train)" : inSeg ? "var(--text-secondary)" : "var(--text-tertiary)", textAlign: si === 0 ? "left" : si === jStops.length - 1 ? "right" : "center", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: (isB || isE) ? 600 : 400 }}>{shortName}</span>;
+                              })}
+                            </div>
+                            {/* Board/exit times under strip */}
+                            <div className="flex justify-between mt-0.5">
+                              {jStops.map((s, si) => {
+                                const isB = si === bi, isE = si === ei;
+                                if (!isB && !isE) return <span key={si} style={{ flex: 1 }} />;
+                                return <span key={si} style={{ fontFamily: FONT, fontSize: "7px", color: "var(--strip-train)", fontWeight: 600, flex: 1, textAlign: si === 0 ? "left" : si === jStops.length - 1 ? "right" : "center" }}>{isB ? (s.scheduledDeparture ? formatTime(s.scheduledDeparture) : "") : (s.scheduledArrival ? formatTime(s.scheduledArrival) : "")}</span>;
+                              })}
+                            </div>
+                          </div>
+                        )}
+                        {/* Fallback for old legs without journeyStops */}
+                        {!hasRouteStrip && leg.metadata?.stops?.length > 0 && (
                           <div className="mb-2 pt-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
                             <div className="flex items-center" style={{ position: "relative", height: 20 }}>
                               <div style={{ position: "absolute", top: 4, left: 0, right: 0, height: 2, background: "var(--border-subtle)", borderRadius: 1 }} />
                               <div style={{ position: "relative", width: 8, height: 8, borderRadius: "50%", background: "var(--strip-train)", border: "2px solid var(--strip-train)", flexShrink: 0, zIndex: 1 }} />
                               <div style={{ flex: 1, display: "flex", justifyContent: "space-evenly" }}>
                                 {leg.metadata.stops.map((s, si) => (
-                                  <div key={si} style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", zIndex: 1 }}>
-                                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--bg-card)", border: "2px solid var(--strip-train)" }} />
-                                  </div>
+                                  <div key={si} style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--bg-card)", border: "2px solid var(--strip-train)", zIndex: 1 }} />
                                 ))}
                               </div>
                               <div style={{ position: "relative", width: 8, height: 8, borderRadius: "50%", background: "var(--strip-train)", border: "2px solid var(--strip-train)", flexShrink: 0, zIndex: 1 }} />
                             </div>
                             <div className="flex items-start mt-1" style={{ gap: 2 }}>
-                              <span style={{ fontFamily: FONT, fontSize: "7px", color: "var(--text-tertiary)", letterSpacing: "0.5px", flexShrink: 0, width: 8 }} />
+                              <span style={{ width: 8, flexShrink: 0 }} />
                               <div style={{ flex: 1, display: "flex", justifyContent: "space-evenly", textAlign: "center" }}>
                                 {leg.metadata.stops.map((s, si) => (
-                                  <span key={si} style={{ fontFamily: FONT, fontSize: "7px", color: "var(--text-tertiary)", letterSpacing: "0.5px", maxWidth: `${Math.floor(100 / leg.metadata.stops.length)}%`, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</span>
+                                  <span key={si} style={{ fontFamily: FONT, fontSize: "7px", color: "var(--text-tertiary)", maxWidth: `${Math.floor(100 / leg.metadata.stops.length)}%`, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name || s.stationName}</span>
                                 ))}
                               </div>
-                              <span style={{ fontFamily: FONT, fontSize: "7px", color: "var(--text-tertiary)", flexShrink: 0, width: 8 }} />
+                              <span style={{ width: 8, flexShrink: 0 }} />
                             </div>
                           </div>
                         )}
-                      </>
-                    ) : (
+                      </>);
+                    })() : (
                       <>
                         <div className="flex items-center justify-between mb-2">
                           <span style={{ fontFamily: FONT, fontSize: "24px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "2px" }}>{leg.origin?.code || leg.origin?.city?.slice(0, 3)?.toUpperCase() || "?"}</span>
@@ -2661,8 +2755,145 @@ function DetailPage({ tripId }) {
                   </div>
                   <div className="mb-2"><Label>DATE</Label><DatePicker value={bDt} onChange={setBDt} /></div>
                   {bTrainErr && <p className="mb-2 text-xs font-bold" style={{ color: "var(--strip-train)", fontFamily: FONT, fontSize: "9px" }}>{bTrainErr}</p>}
-                  {bTrainOptions && (<div className="mb-2"><p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--strip-train)", marginBottom: 6 }}>{bTrainOptions.length} TRAINS FOUND — SELECT ONE</p><div style={{ display: "flex", flexDirection: "column", gap: 4 }}>{bTrainOptions.map((opt, i) => (<button key={i} onClick={() => selectTrainDetail(opt)} className="tappable-card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderRadius: 4, border: "1px solid var(--border-primary)", background: "var(--bg-surface)", cursor: "pointer", textAlign: "left" }}><span style={{ fontFamily: FONT, fontSize: "11px", fontWeight: 600, color: "var(--strip-train)" }}>{opt.origin.name?.split(" ")[0] || "?"} → {opt.destination.name?.split(" ")[0] || "?"}</span><span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{opt.route_name || opt.train_number}</span></button>))}</div></div>)}
-                  {bTrainResult && (<div className="rounded border p-2.5 mb-2" style={{ background: "var(--bg-surface)", borderColor: "var(--strip-train)" }}><div className="flex items-center gap-2 mb-1"><span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--strip-train)" }} /><span className="relative inline-flex rounded-full h-2 w-2" style={{ background: "var(--strip-train)" }} /></span><span className="text-xs font-bold" style={{ color: "var(--strip-train)", fontFamily: FONT, fontSize: "9px" }}>MATCH</span></div><div className="grid grid-cols-2 gap-x-4 gap-y-0.5">{[["ROUTE", `${bTrainResult.origin.name?.split(",")[0] || "?"} → ${bTrainResult.destination.name?.split(",")[0] || "?"}`], ["TRAIN", bTrainResult.route_name || bTrainResult.train_number], ["DEP", bTrainResult.origin.scheduled_departure ? formatTime(bTrainResult.origin.scheduled_departure) : "—"], ["ARR", bTrainResult.destination.scheduled_arrival ? formatTime(bTrainResult.destination.scheduled_arrival) : "—"]].map(([l, v]) => <div key={l} className="flex items-baseline gap-1.5"><span className="text-xs" style={{ color: "var(--text-secondary)", fontFamily: FONT, fontSize: "8px", minWidth: 40 }}>{l}</span><span className="text-xs" style={{ color: "var(--text-primary)", fontFamily: FONT }}>{v}</span></div>)}</div>{bTrainResult.origin.platform && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)" }}>PLATFORM {bTrainResult.origin.platform}</p>}{bTrainResult.delay_minutes > 0 && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "8px", color: "var(--accent-countdown)" }}>+{bTrainResult.delay_minutes} MIN DELAY</p>}</div>)}
+                  {bTrainOptions && (<div className="mb-2"><p style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "2px", color: "var(--strip-train)", marginBottom: 6 }}>{bTrainOptions.length} TRAINS FOUND — SELECT ONE</p><div style={{ display: "flex", flexDirection: "column", gap: 4 }}>{bTrainOptions.map((opt, i) => (<button key={i} onClick={() => selectTrainDetail(opt)} className="tappable-card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderRadius: 4, border: "1px solid var(--border-primary)", background: "var(--bg-surface)", cursor: "pointer", textAlign: "left" }}><span style={{ fontFamily: FONT, fontSize: "11px", fontWeight: 600, color: "var(--strip-train)" }}>{opt.fullRoute?.origin || opt.origin?.name?.split(" ")[0] || "?"} → {opt.fullRoute?.destination || opt.destination?.name?.split(" ")[0] || "?"}</span><span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{opt.routeName || opt.route_name || opt.trainNumber || opt.train_number}</span></button>))}</div></div>)}
+                  {bTrainResult && (() => {
+                    const allStops = bTrainResult.stops || [];
+                    const fr = bTrainResult.fullRoute || {};
+                    const handleStopTap = (idx) => {
+                      if (bBoardIdx == null) { setBBoardIdx(idx); return; }
+                      if (bExitIdx == null) {
+                        if (idx > bBoardIdx) { setBExitIdx(idx); } else { setBExitIdx(bBoardIdx); setBBoardIdx(idx); }
+                        return;
+                      }
+                      // Both set — tap on selected deselects, otherwise replace closest
+                      if (idx === bBoardIdx) { setBBoardIdx(null); setBExitIdx(null); return; }
+                      if (idx === bExitIdx) { setBExitIdx(null); return; }
+                      if (idx < bBoardIdx) { setBBoardIdx(idx); }
+                      else if (idx > bExitIdx) { setBExitIdx(idx); }
+                      else {
+                        const distBoard = idx - bBoardIdx, distExit = bExitIdx - idx;
+                        if (distBoard <= distExit) setBBoardIdx(idx); else setBExitIdx(idx);
+                      }
+                    };
+                    const boardS = bBoardIdx != null ? allStops[bBoardIdx] : null;
+                    const exitS = bExitIdx != null ? allStops[bExitIdx] : null;
+                    const segDurMin = (boardS && exitS && boardS.scheduledDeparture && exitS.scheduledArrival) ? Math.round((new Date(exitS.scheduledArrival) - new Date(boardS.scheduledDeparture)) / 60000) : null;
+                    const segDurStr = segDurMin != null ? (segDurMin >= 60 ? `${Math.floor(segDurMin / 60)}h ${segDurMin % 60}m` : `${segDurMin}m`) : "—";
+                    const segKm = (boardS?.lat && exitS?.lat) ? Math.round(haversineKm(boardS.lat, boardS.lon || 0, exitS.lat, exitS.lon || 0)) : null;
+                    const segStops = (bBoardIdx != null && bExitIdx != null) ? bExitIdx - bBoardIdx - 1 : null;
+
+                    return (<div className="mb-2">
+                      {/* Match banner */}
+                      <div className="flex items-center gap-2 p-2.5 mb-2 rounded" style={{ background: "rgba(34,197,94,0.06)", border: "1px solid rgba(34,197,94,0.2)" }}>
+                        <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ background: "var(--strip-train)" }} /><span className="relative inline-flex rounded-full h-2 w-2" style={{ background: "var(--strip-train)" }} /></span>
+                        <span style={{ fontFamily: FONT, fontSize: "9px", fontWeight: 700, color: "var(--strip-train)", letterSpacing: "1px" }}>MATCH</span>
+                        <span style={{ fontFamily: FONT, fontSize: "9px", fontWeight: 600, color: "var(--strip-train)", marginLeft: "auto", background: "rgba(34,197,94,0.12)", padding: "1px 6px", borderRadius: 1 }}>TRAIN {bTrainResult.trainNumber || bTrainResult.train_number}</span>
+                      </div>
+                      {/* Journey summary */}
+                      <div className="mb-3 pb-2" style={{ borderBottom: "1px solid var(--border-primary)" }}>
+                        <div className="flex items-baseline gap-2 mb-1">
+                          <span style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 600, color: "var(--text-primary)" }}>{fr.origin || bTrainResult.origin?.name || "?"}</span>
+                          <span style={{ fontFamily: FONT, fontSize: "12px", color: "var(--strip-train)" }}>{"\u2192"}</span>
+                          <span style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 600, color: "var(--text-primary)" }}>{fr.destination || bTrainResult.destination?.name || "?"}</span>
+                        </div>
+                        <div className="flex gap-3" style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>
+                          <span><span style={{ color: "var(--strip-train)", fontWeight: 600 }}>{bTrainResult.operatorName || "SNCF"}</span> {bTrainResult.serviceType || ""}</span>
+                          <span>{fr.totalStops || allStops.length} stops</span>
+                          {fr.totalDurationMinutes && <span>{fr.totalDurationMinutes >= 60 ? `${Math.floor(fr.totalDurationMinutes / 60)}h ${fr.totalDurationMinutes % 60}m` : `${fr.totalDurationMinutes}m`}</span>}
+                        </div>
+                      </div>
+                      {/* Step indicators */}
+                      <div className="flex gap-4 mb-3">
+                        <div className="flex items-center gap-2">
+                          <span style={{ width: 18, height: 18, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "9px", fontWeight: 600, fontFamily: FONT, border: bBoardIdx != null ? "none" : "1px solid var(--strip-train)", background: bBoardIdx != null ? "var(--strip-train)" : "transparent", color: bBoardIdx != null ? "var(--bg-primary)" : "var(--strip-train)" }}>1</span>
+                          <span style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1.5px", color: bBoardIdx != null ? "var(--text-primary)" : "var(--text-tertiary)" }}>BOARD</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span style={{ width: 18, height: 18, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "9px", fontWeight: 600, fontFamily: FONT, border: bExitIdx != null ? "none" : "1px solid var(--strip-train)", background: bExitIdx != null ? "var(--strip-train)" : "transparent", color: bExitIdx != null ? "var(--bg-primary)" : "var(--strip-train)" }}>2</span>
+                          <span style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "1.5px", color: bExitIdx != null ? "var(--text-primary)" : "var(--text-tertiary)" }}>EXIT</span>
+                        </div>
+                      </div>
+                      {/* Time column headers */}
+                      <div className="flex justify-end gap-0 mb-1 pr-1" style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "1px", color: "var(--text-tertiary)" }}>
+                        <span style={{ width: 48, textAlign: "right" }}>ARR</span>
+                        <span style={{ width: 48, textAlign: "right" }}>DEP</span>
+                      </div>
+                      {/* Stop list */}
+                      <div style={{ position: "relative", paddingLeft: 28, maxHeight: 340, overflowY: "auto" }}>
+                        {/* Track line */}
+                        <div style={{ position: "absolute", left: 10, top: 10, bottom: 10, width: 2, background: "var(--border-primary)" }} />
+                        {/* Highlighted segment */}
+                        {bBoardIdx != null && bExitIdx != null && allStops.length > 1 && (
+                          <div style={{ position: "absolute", left: 10, width: 2, background: "var(--strip-train)", top: `${(bBoardIdx / (allStops.length - 1)) * 100}%`, bottom: `${((allStops.length - 1 - bExitIdx) / (allStops.length - 1)) * 100}%`, zIndex: 1 }} />
+                        )}
+                        {allStops.map((stop, si) => {
+                          const isBoard = si === bBoardIdx;
+                          const isExit = si === bExitIdx;
+                          const inSeg = bBoardIdx != null && bExitIdx != null && si >= bBoardIdx && si <= bExitIdx;
+                          const dimmed = (bBoardIdx != null && bExitIdx != null) && !inSeg;
+                          const dotSize = (isBoard || isExit) ? 12 : 10;
+                          const dotColor = (isBoard || isExit) ? "var(--strip-train)" : inSeg ? "var(--strip-train)" : "var(--border-primary)";
+                          const dotBg = (isBoard || isExit) ? "var(--strip-train)" : inSeg ? "var(--bg-card)" : "var(--bg-card)";
+                          const nameColor = (isBoard || isExit) ? "var(--strip-train)" : dimmed ? "var(--text-tertiary)" : "var(--text-primary)";
+                          const timeColor = dimmed ? "var(--text-tertiary)" : "var(--text-secondary)";
+                          return (
+                            <div key={si} onClick={() => handleStopTap(si)} className="flex items-start" style={{ position: "relative", padding: "6px 0 6px 0", cursor: "pointer", borderRadius: 2, minHeight: 36 }}>
+                              <div style={{ position: "absolute", left: -22, top: 10, width: dotSize, height: dotSize, borderRadius: "50%", border: `2px solid ${dotColor}`, background: dotBg, zIndex: 2, boxShadow: (isBoard || isExit) ? "0 0 8px rgba(34,197,94,0.4)" : "none", marginLeft: (isBoard || isExit) ? -1 : 0 }} />
+                              <div className="flex-1 flex justify-between items-start">
+                                <div className="flex items-center gap-1.5">
+                                  <span style={{ fontFamily: FONT, fontSize: "12px", fontWeight: (isBoard || isExit) ? 600 : 400, color: nameColor, lineHeight: 1.3 }}>{stop.stationName || "?"}</span>
+                                  {isBoard && <span style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "1px", fontWeight: 600, color: "var(--strip-train)", background: "rgba(34,197,94,0.12)", padding: "1px 5px", borderRadius: 1 }}>BOARD</span>}
+                                  {isExit && <span style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "1px", fontWeight: 600, color: "var(--strip-train)", background: "rgba(34,197,94,0.12)", padding: "1px 5px", borderRadius: 1 }}>EXIT</span>}
+                                </div>
+                                <div className="flex gap-0" style={{ flexShrink: 0 }}>
+                                  <span style={{ fontFamily: FONT, fontSize: "11px", color: (isExit && stop.scheduledArrival) ? "var(--strip-train)" : timeColor, fontWeight: isExit ? 600 : 400, width: 48, textAlign: "right", display: "inline-block" }}>{stop.scheduledArrival ? formatTime(stop.scheduledArrival) : "\u2014"}</span>
+                                  <span style={{ fontFamily: FONT, fontSize: "11px", color: (isBoard && stop.scheduledDeparture) ? "var(--strip-train)" : timeColor, fontWeight: isBoard ? 600 : 400, width: 48, textAlign: "right", display: "inline-block" }}>{stop.scheduledDeparture ? formatTime(stop.scheduledDeparture) : "\u2014"}</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {/* Enriched info panel */}
+                      {boardS && exitS && (
+                        <div className="mt-3 pt-3" style={{ borderTop: "1px solid var(--border-primary)" }}>
+                          <div style={{ fontFamily: FONT, fontSize: "9px", letterSpacing: "2px", color: "var(--text-tertiary)", marginBottom: 10 }}>YOUR SEGMENT</div>
+                          <div className="flex items-center gap-3 mb-3">
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 600, color: "var(--text-primary)", lineHeight: 1.2 }}>{boardS.stationName}</div>
+                              <div style={{ fontFamily: FONT, fontSize: "20px", fontWeight: 700, color: "var(--strip-train)", marginTop: 2 }}>{boardS.scheduledDeparture ? formatTime(boardS.scheduledDeparture) : "—"}</div>
+                              <div style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", marginTop: 2 }}>Platform {boardS.platformNumber || "—"}</div>
+                            </div>
+                            <div className="flex flex-col items-center" style={{ flexShrink: 0 }}>
+                              <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)", fontWeight: 500 }}>{segDurStr}</span>
+                              <div style={{ width: 36, height: 1, background: "var(--strip-train)", margin: "4px 0", position: "relative" }}><span style={{ position: "absolute", right: -3, top: -5, color: "var(--strip-train)", fontSize: "10px" }}>{"\u25B8"}</span></div>
+                            </div>
+                            <div style={{ flex: 1, textAlign: "right" }}>
+                              <div style={{ fontFamily: FONT, fontSize: "14px", fontWeight: 600, color: "var(--text-primary)", lineHeight: 1.2 }}>{exitS.stationName}</div>
+                              <div style={{ fontFamily: FONT, fontSize: "20px", fontWeight: 700, color: "var(--strip-train)", marginTop: 2 }}>{exitS.scheduledArrival ? formatTime(exitS.scheduledArrival) : "—"}</div>
+                              <div style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)", marginTop: 2 }}>Platform {exitS.platformNumber || "—"}</div>
+                            </div>
+                          </div>
+                          <div className="flex" style={{ borderTop: "1px solid var(--border-primary)", paddingTop: 10 }}>
+                            <div className="flex-1 text-center">
+                              <div style={{ fontFamily: FONT, fontSize: "16px", fontWeight: 600, color: "var(--text-primary)" }}>{segKm != null ? segKm : "—"}</div>
+                              <div style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "1.5px", color: "var(--text-tertiary)", marginTop: 2 }}>KM</div>
+                            </div>
+                            <div className="flex-1 text-center">
+                              <div style={{ fontFamily: FONT, fontSize: "16px", fontWeight: 600, color: "var(--text-primary)" }}>{segDurStr}</div>
+                              <div style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "1.5px", color: "var(--text-tertiary)", marginTop: 2 }}>EN ROUTE</div>
+                            </div>
+                            <div className="flex-1 text-center">
+                              <div style={{ fontFamily: FONT, fontSize: "16px", fontWeight: 600, color: "var(--text-primary)" }}>{segStops != null ? segStops : "—"}</div>
+                              <div style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "1.5px", color: "var(--text-tertiary)", marginTop: 2 }}>STOPS</div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      {/* Status */}
+                      {bTrainResult.delay_minutes > 0 && <p className="mt-2" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--accent-countdown)" }}>+{bTrainResult.delay_minutes} MIN DELAY</p>}
+                    </div>);
+                  })()}
                   <button onClick={() => setBTrainManual(true)} style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "1px", color: "var(--text-tertiary)", background: "none", border: "none", cursor: "pointer", padding: "4px 0", textDecoration: "underline" }}>ENTER MANUALLY</button>
                 </div>)}
                 {bType === "train" && bTrainManual && (<div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><div><Label>ORIGIN</Label><PlaceAutocomplete value={bO} onChange={setBO} onSelect={(p) => setBOPlace(p)} placeholder="Penn Station, NYC" types="transit_station|train_station|locality" />{bOPlace && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{bOPlace.address}</p>}</div><div><Label>DEST</Label><PlaceAutocomplete value={bD} onChange={setBD} onSelect={(p) => setBDPlace(p)} placeholder="Union Station, DC" types="transit_station|train_station|locality" />{bDPlace && <p className="mt-1" style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{bDPlace.address}</p>}</div><div><Label>DATE</Label><DatePicker value={bDt} onChange={setBDt} /></div><div><Label>TIME (OPT)</Label><Input type="time" value={bTm} onChange={e => setBTm(e.target.value)} /></div><div className="sm:col-span-2"><button onClick={() => setBTrainManual(false)} style={{ fontFamily: FONT, fontSize: "8px", letterSpacing: "1px", color: "var(--text-tertiary)", background: "none", border: "none", cursor: "pointer", padding: "4px 0", textDecoration: "underline" }}>LOOK UP TRAIN</button></div></div>)}
@@ -3057,8 +3288,8 @@ function CreatePage() {
 
   // Mini card helpers
   const miniDate = (iso) => { if (!iso) return ""; const d = new Date(iso); return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }).toUpperCase(); };
-  const miniDuration = (d, a, origin, destination) => {
-    if (origin?.lat && destination?.lat && origin.lat !== 0 && destination.lat !== 0) {
+  const miniDuration = (d, a, origin, destination, legType) => {
+    if (legType !== "train" && legType !== "bus" && origin?.lat && destination?.lat && origin.lat !== 0 && destination.lat !== 0) {
       const nm = haversineNM(origin.lat, origin.lng, destination.lat, destination.lng);
       const hrs = nm / 460 + 0.5; const h = Math.floor(hrs), m = Math.round((hrs - h) * 60);
       return `~${h}H ${m}M`;
@@ -3189,7 +3420,7 @@ function CreatePage() {
                     ) : (
                       <div className="flex items-center gap-2">
                         <span style={{ fontFamily: FONT, fontSize: "18px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "1px" }}>{leg.origin?.code || "???"}</span>
-                        <span style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)", flex: 1, textAlign: "center" }}>{miniDuration(leg.depart_time, leg.arrive_time, leg.origin, leg.destination)}</span>
+                        <span style={{ fontFamily: FONT, fontSize: "8px", color: "var(--text-tertiary)", flex: 1, textAlign: "center" }}>{miniDuration(leg.depart_time, leg.arrive_time, leg.origin, leg.destination, leg.type)}</span>
                         <span style={{ fontFamily: FONT, fontSize: "18px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "1px" }}>{leg.destination?.code || "???"}</span>
                       </div>
                     )}
