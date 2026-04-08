@@ -320,8 +320,9 @@ function formatDate(iso) {
   return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 // Duration: prefer distance-based estimate for flights (avoids cross-timezone errors)
-function formatDuration(d, a, origin, destination) {
-  if (origin?.lat && destination?.lat && origin.lat !== 0 && destination.lat !== 0) {
+function formatDuration(d, a, origin, destination, legType) {
+  // Only use haversine/airspeed estimate for flights — trains/buses use actual times
+  if (legType !== "train" && legType !== "bus" && origin?.lat && destination?.lat && origin.lat !== 0 && destination.lat !== 0) {
     const nm = haversineNM(origin.lat, origin.lng, destination.lat, destination.lng);
     const hrs = nm / 460 + 0.5; // avg cruise speed + taxi/climb/descent
     const h = Math.floor(hrs), m = Math.round((hrs - h) * 60);
@@ -2030,8 +2031,10 @@ function RouteSummaryBar({ legs }) {
     if (isHotel) {
       segments.push({ type: "hotel", label: `${calcNights(leg)}N`, city: leg.origin?.city });
     } else {
-      const dur = formatDuration(leg.depart_time, leg.arrive_time, leg.origin, leg.destination);
-      segments.push({ type: "transport", origin: leg.origin?.code || leg.origin?.city?.slice(0, 3)?.toUpperCase() || "?", destination: leg.destination?.code || leg.destination?.city?.slice(0, 3)?.toUpperCase() || "?", duration: dur, legType: leg.type });
+      const dur = formatDuration(leg.depart_time, leg.arrive_time, leg.origin, leg.destination, leg.type);
+      const oLabel = leg.type === "train" ? (leg.origin?.city || leg.origin?.code || "?") : (leg.origin?.code || leg.origin?.city?.slice(0, 3)?.toUpperCase() || "?");
+      const dLabel = leg.type === "train" ? (leg.destination?.city || leg.destination?.code || "?") : (leg.destination?.code || leg.destination?.city?.slice(0, 3)?.toUpperCase() || "?");
+      segments.push({ type: "transport", origin: oLabel, destination: dLabel, duration: dur, legType: leg.type });
     }
   });
 
@@ -2464,7 +2467,7 @@ function DetailPage({ tripId }) {
     let newLeg;
     if (bType === "flight" && bAF) { newLeg = { type: "flight", origin: { code: bAF.origin.code, city: bAF.origin.airport, lat: 0, lng: 0 }, destination: { code: bAF.destination.code, city: bAF.destination.airport, lat: 0, lng: 0 }, depart_time: bAF.origin.scheduled, arrive_time: bAF.destination.scheduled, carrier: bAF.carrier, vehicle_number: bAF.callsign, metadata: { terminal: bAF.origin.terminal || null, gate: bAF.origin.gate || null, depart_local: bAF.origin.scheduled_local || null, arrive_local: bAF.destination.scheduled_local || null } }; }
     else if (bType === "hotel") { const nights = bHO ? Math.max(1, Math.round((new Date(bHO) - new Date(bHI)) / 86400000)) : 1; const hLat = bHPlace?.lat || 0; const hLng = bHPlace?.lng || 0; const hCity = bHPlace?.city || bHN; newLeg = { type: "hotel", origin: { code: null, city: hCity, lat: hLat, lng: hLng }, destination: { code: null, city: hCity, lat: hLat, lng: hLng }, depart_time: `${bHI}T15:00:00Z`, arrive_time: bHO ? `${bHO}T11:00:00Z` : `${bHI}T11:00:00Z`, carrier: bHN, vehicle_number: null, metadata: { nights, confirmation: bHC, address: bHPlace?.address || null } }; }
-    else if (bType === "train" && bTrainResult) { const tr = bTrainResult; newLeg = { type: "train", origin: { code: (tr.origin.name || "").slice(0, 3).toUpperCase(), city: tr.origin.name, lat: tr.origin.lat || 0, lng: tr.origin.lng || 0 }, destination: { code: (tr.destination.name || "").slice(0, 3).toUpperCase(), city: tr.destination.name, lat: tr.destination.lat || 0, lng: tr.destination.lng || 0 }, depart_time: tr.origin.scheduled_departure, arrive_time: tr.destination.scheduled_arrival, carrier: tr.operator_name || bTrainOp, vehicle_number: tr.train_number, metadata: { operator: tr.operator, route_name: tr.route_name, platform: tr.origin.platform } }; }
+    else if (bType === "train" && bTrainResult) { const tr = bTrainResult; const userStops = (tr.stops || []).length > 2 ? tr.stops.slice(1, -1) : []; newLeg = { type: "train", origin: { code: tr.origin.code || tr.origin.name, city: tr.origin.name, lat: tr.origin.lat || 0, lng: tr.origin.lng || 0 }, destination: { code: tr.destination.code || tr.destination.name, city: tr.destination.name, lat: tr.destination.lat || 0, lng: tr.destination.lng || 0 }, depart_time: tr.origin.scheduled_departure, arrive_time: tr.destination.scheduled_arrival, carrier: tr.operator_name || bTrainOp, vehicle_number: tr.train_number, metadata: { operator: tr.operator, route_name: tr.route_name, platform: tr.origin.platform, stops: userStops, depart_local: tr.origin.scheduled_departure, arrive_local: tr.destination.scheduled_arrival } }; }
     else { const oLat = bOPlace?.lat || 0; const oLng = bOPlace?.lng || 0; const dLat = bDPlace?.lat || 0; const dLng = bDPlace?.lng || 0; const oCity = bOPlace?.city || bO; const dCity = bDPlace?.city || bD; newLeg = { type: bType, origin: { code: bO.slice(0, 3).toUpperCase(), city: oCity, lat: oLat, lng: oLng }, destination: { code: bD.slice(0, 3).toUpperCase(), city: dCity, lat: dLat, lng: dLng }, depart_time: `${bDt}T${bTm || "08:00"}:00Z`, arrive_time: `${bDt}T12:00:00Z`, carrier: bType === "train" ? "Train" : "Bus", vehicle_number: null, metadata: bType === "train" ? { operator: bTrainOp } : {} }; }
     try {
       const created = await api(`/trips/${trip.id}/legs`, { method: "POST", body: JSON.stringify(legToApi(newLeg)) });
@@ -2538,18 +2541,62 @@ function DetailPage({ tripId }) {
                       </div>
                       <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{formatDate(leg.depart_time)}</span>
                     </div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span style={{ fontFamily: FONT, fontSize: "24px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "2px" }}>{leg.origin?.code || leg.origin?.city?.slice(0, 3)?.toUpperCase() || "?"}</span>
-                      <div className="flex flex-col items-center flex-1 mx-3">
-                        <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{dur}</span>
-                        <div style={{ width: "100%", height: 0, borderTop: "1px solid var(--border-subtle)", marginTop: 4 }} />
-                      </div>
-                      <span style={{ fontFamily: FONT, fontSize: "24px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "2px" }}>{leg.destination?.code || leg.destination?.city?.slice(0, 3)?.toUpperCase() || "?"}</span>
-                    </div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{legDepartTime(leg)}</span>
-                      <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{legArriveTime(leg)}</span>
-                    </div>
+                    {leg.type === "train" ? (
+                      <>
+                        <div className="flex items-center justify-between mb-1">
+                          <span style={{ fontFamily: FONT, fontSize: "16px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "1px", maxWidth: "40%", lineHeight: 1.2 }}>{leg.origin?.city || leg.origin?.code || "?"}</span>
+                          <div className="flex flex-col items-center flex-1 mx-3">
+                            <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{dur}</span>
+                            <div style={{ width: "100%", height: 0, borderTop: "1px solid var(--border-subtle)", marginTop: 4 }} />
+                          </div>
+                          <span style={{ fontFamily: FONT, fontSize: "16px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "1px", maxWidth: "40%", lineHeight: 1.2, textAlign: "right" }}>{leg.destination?.city || leg.destination?.code || "?"}</span>
+                        </div>
+                        <div className="flex items-center justify-between mb-2">
+                          <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{legDepartTime(leg)}</span>
+                          <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{legArriveTime(leg)}</span>
+                        </div>
+                        {leg.metadata?.stops?.length > 0 && (
+                          <div className="mb-2 pt-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+                            <div className="flex items-center" style={{ position: "relative", height: 20 }}>
+                              <div style={{ position: "absolute", top: 4, left: 0, right: 0, height: 2, background: "var(--border-subtle)", borderRadius: 1 }} />
+                              <div style={{ position: "relative", width: 8, height: 8, borderRadius: "50%", background: "var(--strip-train)", border: "2px solid var(--strip-train)", flexShrink: 0, zIndex: 1 }} />
+                              <div style={{ flex: 1, display: "flex", justifyContent: "space-evenly" }}>
+                                {leg.metadata.stops.map((s, si) => (
+                                  <div key={si} style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", zIndex: 1 }}>
+                                    <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--bg-card)", border: "2px solid var(--strip-train)" }} />
+                                  </div>
+                                ))}
+                              </div>
+                              <div style={{ position: "relative", width: 8, height: 8, borderRadius: "50%", background: "var(--strip-train)", border: "2px solid var(--strip-train)", flexShrink: 0, zIndex: 1 }} />
+                            </div>
+                            <div className="flex items-start mt-1" style={{ gap: 2 }}>
+                              <span style={{ fontFamily: FONT, fontSize: "7px", color: "var(--text-tertiary)", letterSpacing: "0.5px", flexShrink: 0, width: 8 }} />
+                              <div style={{ flex: 1, display: "flex", justifyContent: "space-evenly", textAlign: "center" }}>
+                                {leg.metadata.stops.map((s, si) => (
+                                  <span key={si} style={{ fontFamily: FONT, fontSize: "7px", color: "var(--text-tertiary)", letterSpacing: "0.5px", maxWidth: `${Math.floor(100 / leg.metadata.stops.length)}%`, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</span>
+                                ))}
+                              </div>
+                              <span style={{ fontFamily: FONT, fontSize: "7px", color: "var(--text-tertiary)", flexShrink: 0, width: 8 }} />
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between mb-2">
+                          <span style={{ fontFamily: FONT, fontSize: "24px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "2px" }}>{leg.origin?.code || leg.origin?.city?.slice(0, 3)?.toUpperCase() || "?"}</span>
+                          <div className="flex flex-col items-center flex-1 mx-3">
+                            <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{dur}</span>
+                            <div style={{ width: "100%", height: 0, borderTop: "1px solid var(--border-subtle)", marginTop: 4 }} />
+                          </div>
+                          <span style={{ fontFamily: FONT, fontSize: "24px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "2px" }}>{leg.destination?.code || leg.destination?.city?.slice(0, 3)?.toUpperCase() || "?"}</span>
+                        </div>
+                        <div className="flex items-center justify-between mb-2">
+                          <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{legDepartTime(leg)}</span>
+                          <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{legArriveTime(leg)}</span>
+                        </div>
+                      </>
+                    )}
                     {isLive && i === activeLeg && (() => {
                       const livePos = getLivePos(leg, liveTrackData);
                       return livePos ? (
@@ -3577,20 +3624,41 @@ function SharedPage({ tripId }) {
                     </div>
                     <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-secondary)" }}>{formatDate(leg.depart_time)}</span>
                   </div>
-                  <div className="flex items-center justify-between mb-2">
-                    <span style={{ fontFamily: FONT, fontSize: "24px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "2px" }}>{leg.origin?.code || leg.origin?.city?.slice(0, 3)?.toUpperCase() || "?"}</span>
-                    <div className="flex flex-col items-center flex-1 mx-3">
-                      <div style={{ width: "100%", height: 0, borderTop: "1px solid var(--border-subtle)" }} />
-                    </div>
-                    <span style={{ fontFamily: FONT, fontSize: "24px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "2px" }}>{leg.destination?.code || leg.destination?.city?.slice(0, 3)?.toUpperCase() || "?"}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{legDepartTime(leg)}</span>
-                    <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{legArriveTime(leg)}</span>
-                  </div>
-                  <div className="pt-2 mt-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
-                    <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{[leg.carrier, legDepartTime(leg) + " \u2192 " + legArriveTime(leg)].filter(Boolean).join(" \u00B7 ")}</span>
-                  </div>
+                  {leg.type === "train" ? (
+                    <>
+                      <div className="flex items-center justify-between mb-1">
+                        <span style={{ fontFamily: FONT, fontSize: "16px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "1px", maxWidth: "40%", lineHeight: 1.2 }}>{leg.origin?.city || leg.origin?.code || "?"}</span>
+                        <div className="flex flex-col items-center flex-1 mx-3">
+                          <div style={{ width: "100%", height: 0, borderTop: "1px solid var(--border-subtle)" }} />
+                        </div>
+                        <span style={{ fontFamily: FONT, fontSize: "16px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "1px", maxWidth: "40%", lineHeight: 1.2, textAlign: "right" }}>{leg.destination?.city || leg.destination?.code || "?"}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{legDepartTime(leg)}</span>
+                        <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{legArriveTime(leg)}</span>
+                      </div>
+                      <div className="pt-2 mt-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+                        <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{[leg.carrier, legDepartTime(leg) + " \u2192 " + legArriveTime(leg)].filter(Boolean).join(" \u00B7 ")}</span>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between mb-2">
+                        <span style={{ fontFamily: FONT, fontSize: "24px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "2px" }}>{leg.origin?.code || leg.origin?.city?.slice(0, 3)?.toUpperCase() || "?"}</span>
+                        <div className="flex flex-col items-center flex-1 mx-3">
+                          <div style={{ width: "100%", height: 0, borderTop: "1px solid var(--border-subtle)" }} />
+                        </div>
+                        <span style={{ fontFamily: FONT, fontSize: "24px", fontWeight: 700, color: "var(--text-heading)", letterSpacing: "2px" }}>{leg.destination?.code || leg.destination?.city?.slice(0, 3)?.toUpperCase() || "?"}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{legDepartTime(leg)}</span>
+                        <span style={{ fontFamily: FONT, fontSize: "10px", color: "var(--text-secondary)" }}>{legArriveTime(leg)}</span>
+                      </div>
+                      <div className="pt-2 mt-2" style={{ borderTop: "1px solid var(--border-subtle)" }}>
+                        <span style={{ fontFamily: FONT, fontSize: "9px", color: "var(--text-tertiary)" }}>{[leg.carrier, legDepartTime(leg) + " \u2192 " + legArriveTime(leg)].filter(Boolean).join(" \u00B7 ")}</span>
+                      </div>
+                    </>
+                  )}
                 </>
               )}
             </div>
